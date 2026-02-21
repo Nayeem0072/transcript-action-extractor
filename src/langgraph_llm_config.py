@@ -6,7 +6,9 @@ Each node can have its own optimized settings.
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from project root (parent of src/) so URL/model are correct regardless of cwd
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_project_root, ".env"))
 
 
 # ============================================================================
