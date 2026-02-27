@@ -27,9 +27,10 @@ class ResolutionResult(PydanticBaseModel):
     updated_actions: list[dict]
     still_unresolved: list[dict]
 
-    @field_validator("still_unresolved", mode="before")
+    @field_validator("resolved_segments", "new_actions", "updated_actions", "still_unresolved", mode="before")
     @classmethod
-    def still_unresolved_to_dicts(cls, v: list) -> list:
+    def strings_to_dicts(cls, v: list) -> list:
+        """Accept list of dicts or list of strings; normalize strings to {'text': value}."""
         if not isinstance(v, list):
             return v
         out = []

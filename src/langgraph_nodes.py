@@ -259,15 +259,31 @@ CRITICAL for description: Resolve "it", "that", "this", "that thing" from nearby
     return {**state, "candidate_segments": segments}
 
 
+# Utterances that acknowledge a task is being noted/recorded rather than
+# creating a new task. These should never become action items.
+_META_ACTION_PATTERNS = re.compile(
+    r"^\s*("
+    r"adding|noted|noting(\s+that)?|writing\s+that\s+down|"
+    r"i'?ll\s+(add|note|write|put)\s+(it|that(\s+down)?)|"
+    r"(i'?ll\s+)?add\s+(it|that)\s+to\s+(the\s+)?(list|board|backlog|tracker)|"
+    r"putting\s+(it|that)\s+(in|on)\s+(the\s+)?(list|board|backlog|tracker)|"
+    r"got\s+it|on\s+it|done|copy\s+that|roger(\s+that)?"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
+
 def evidence_normalizer_node(state: GraphState) -> GraphState:
     """
     [4] EVIDENCE NORMALIZER NODE
     Role: Structure cleaning (no heavy reasoning)
-    Standardizes verbs, trims ASR noise, removes duplicates, adds span IDs
+    Standardizes verbs, trims ASR noise, removes duplicates, adds span IDs.
+    Also drops meta-action utterances (e.g. "adding", "noted") that acknowledge
+    a task is being recorded rather than creating a new task.
     """
     segments = state.get("candidate_segments", [])
     logger.info(f"EvidenceNormalizer: Normalizing {len(segments)} segments")
-    
+
     # Verb normalization mapping
     verb_normalizations = {
         "take care of": "fix",
@@ -280,26 +296,31 @@ def evidence_normalizer_node(state: GraphState) -> GraphState:
         "gonna": "will",
         "wanna": "want",
     }
-    
+
     normalized_segments = []
     seen_texts = set()
-    
+
     for seg in segments:
         # Trim ASR noise (common patterns)
         text = seg.text
         text = re.sub(r'\b(um|uh|er|ah|like|you know)\b', '', text, flags=re.IGNORECASE)
         text = re.sub(r'\s+', ' ', text).strip()
-        
+
         # Skip if empty after cleaning
         if not text:
             continue
-        
+
+        # Drop meta-action utterances — they acknowledge recording, not a real task
+        if seg.intent == "action_item" and _META_ACTION_PATTERNS.match(text):
+            logger.debug("EvidenceNormalizer: Dropping meta-action segment: %s", text)
+            continue
+
         # Skip duplicates within chunk (exact text match)
         text_lower = text.lower()
         if text_lower in seen_texts:
             continue
         seen_texts.add(text_lower)
-        
+
         # Normalize verbs in action items
         raw_verb = None
         if seg.intent == "action_item" and seg.action_details:
@@ -308,7 +329,7 @@ def evidence_normalizer_node(state: GraphState) -> GraphState:
                 if pattern.lower() in desc.lower():
                     raw_verb = replacement
                     break
-        
+
         # Create normalized segment
         normalized_seg = Segment(
             speaker=seg.speaker,
@@ -322,9 +343,9 @@ def evidence_normalizer_node(state: GraphState) -> GraphState:
             raw_verb=raw_verb,
         )
         normalized_segments.append(normalized_seg)
-    
+
     logger.info(f"EvidenceNormalizer: {len(normalized_segments)} segments after normalization")
-    
+
     return {**state, "candidate_segments": normalized_segments}
 
 
@@ -533,10 +554,10 @@ Previous actions:
         updated_actions: list[dict]
         still_unresolved: list[dict]
 
-        @field_validator("still_unresolved", mode="before")
+        @field_validator("resolved_segments", "new_actions", "updated_actions", "still_unresolved", mode="before")
         @classmethod
-        def still_unresolved_to_dicts(cls, v: list) -> list:
-            """Accept list of dicts or list of strings; normalize to list of dicts with 'text'."""
+        def strings_to_dicts(cls, v: list) -> list:
+            """Accept list of dicts or list of strings; normalize strings to {'text': value}."""
             if not isinstance(v, list):
                 return v
             out = []
@@ -595,25 +616,31 @@ def global_deduplicator_node(state: GraphState) -> GraphState:
     [6] GLOBAL DEDUPLICATOR NODE
     Role: Stop loops + repetition
     Two actions are the same if:
-    - speaker same
     - verb similar
-    - object similar
+    - description has sufficient word overlap
     - occur in same meeting window
+    Speaker is intentionally NOT required to match: the same task can be raised by
+    one person and acknowledged/noted by another (e.g. John assigns it, Priya confirms).
     """
     merged_actions = state.get("merged_actions", [])
     logger.info(f"GlobalDeduplicator: Processing {len(merged_actions)} actions")
-    
+
+    # Stop-words to ignore when computing description overlap
+    _STOP_WORDS = {
+        "a", "an", "the", "to", "for", "of", "and", "or", "in", "on", "at",
+        "it", "that", "this", "is", "be", "with", "as", "by", "from", "up",
+        "task", "item", "list", "add", "create", "note",
+    }
+
+    def _content_words(text: str) -> set:
+        return {w for w in text.lower().split() if w not in _STOP_WORDS}
+
     def are_similar(action1: Action, action2: Action) -> bool:
         """Check if two actions are duplicates."""
-        # Same speaker
-        if action1.speaker != action2.speaker:
-            return False
-        
         # Similar verb (simple string similarity)
         verb1 = (action1.verb or "").lower()
         verb2 = (action2.verb or "").lower()
         if verb1 and verb2 and verb1 != verb2:
-            # Check if verbs are synonyms
             verb_synonyms = {
                 "fix": ["fix", "handle", "take care", "deal"],
                 "send": ["send", "email", "share"],
@@ -626,32 +653,30 @@ def global_deduplicator_node(state: GraphState) -> GraphState:
                     break
             if not similar:
                 return False
-        
-        # Similar object/description (simple word overlap)
-        desc1_words = set((action1.description or "").lower().split())
-        desc2_words = set((action2.description or "").lower().split())
-        if desc1_words and desc2_words:
-            overlap = len(desc1_words & desc2_words) / max(len(desc1_words), len(desc2_words))
-            if overlap < 0.3:  # Less than 30% word overlap
+
+        # Similar description — use content words (strip stop-words) for better signal
+        words1 = _content_words(action1.description or "")
+        words2 = _content_words(action2.description or "")
+        if words1 and words2:
+            overlap = len(words1 & words2) / max(len(words1), len(words2))
+            if overlap < 0.4:  # raised from 0.3 to reduce false positives now that speaker check is gone
                 return False
-        
+
         # Same meeting window (within 3 chunks)
         if action1.meeting_window and action2.meeting_window:
-            window1 = action1.meeting_window
-            window2 = action2.meeting_window
-            if abs(window1[0] - window2[0]) > 3:
+            if abs(action1.meeting_window[0] - action2.meeting_window[0]) > 3:
                 return False
-        
+
         return True
-    
+
     # Deduplicate
     deduplicated = []
     seen_indices = set()
-    
+
     for i, action1 in enumerate(merged_actions):
         if i in seen_indices:
             continue
-        
+
         # Find all similar actions
         similar_group = [action1]
         for j, action2 in enumerate(merged_actions[i+1:], start=i+1):
@@ -660,24 +685,33 @@ def global_deduplicator_node(state: GraphState) -> GraphState:
             if are_similar(action1, action2):
                 similar_group.append(action2)
                 seen_indices.add(j)
-        
-        # Merge the group
+
+        # Merge the group into one representative action
         if len(similar_group) == 1:
             deduplicated.append(action1)
         else:
-            # Merge: take best assignee, deadline, combine spans
-            merged = similar_group[0]
-            for other in similar_group[1:]:
-                if not merged.assignee and other.assignee:
-                    merged.assignee = other.assignee
-                if not merged.deadline and other.deadline:
-                    merged.deadline = other.deadline
-                merged.source_spans.extend(other.source_spans)
-                merged.confidence = max(merged.confidence, other.confidence)
-            deduplicated.append(merged)
-    
+            # Prefer the action whose speaker IS the assignee — that is the person
+            # who will actually do the work, not the one who assigned it.
+            def _speaker_is_assignee(a: Action) -> bool:
+                return bool(a.speaker and a.assignee and a.speaker.lower() == a.assignee.lower())
+
+            representative = next(
+                (a for a in similar_group if _speaker_is_assignee(a)),
+                similar_group[0],
+            )
+            for other in similar_group:
+                if other is representative:
+                    continue
+                if not representative.assignee and other.assignee:
+                    representative.assignee = other.assignee
+                if not representative.deadline and other.deadline:
+                    representative.deadline = other.deadline
+                representative.source_spans.extend(other.source_spans)
+                representative.confidence = max(representative.confidence, other.confidence)
+            deduplicated.append(representative)
+
     logger.info(f"GlobalDeduplicator: Reduced {len(merged_actions)} -> {len(deduplicated)} actions")
-    
+
     return {**state, "merged_actions": deduplicated}
 
 
