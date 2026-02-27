@@ -39,7 +39,6 @@ def create_llm(cfg: dict):
             api_key=cfg.get("api_key") or None,
             temperature=cfg["temperature"],
             max_tokens=cfg["max_tokens"],
-            top_p=cfg.get("top_p"),
             timeout=cfg.get("timeout", 60),
         )
 
@@ -194,13 +193,14 @@ def local_extractor_node(state: GraphState) -> GraphState:
     
     llm = create_local_extractor_llm()
     
-    # Use JSON mode for structured extraction
+    # Use tool_use (function calling) for structured extraction — more reliable than
+    # json_mode with Claude, which can silently return empty/miskeyed fields.
     from pydantic import BaseModel as PydanticBaseModel
     
     class SegmentExtraction(PydanticBaseModel):
         segments: list[Dict[str, Any]]
     
-    structured_llm = llm.with_structured_output(SegmentExtraction, method="json_mode")
+    structured_llm = llm.with_structured_output(SegmentExtraction)
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are extracting work-relevant segments from a meeting transcript chunk.
@@ -233,8 +233,10 @@ CRITICAL for description: Resolve "it", "that", "this", "that thing" from nearby
     # Convert to Segment objects
     segments = []
     for idx, seg_data in enumerate(result.segments):
-        # Generate span ID
         text = seg_data.get("text", "")
+        if not text:
+            logger.warning(f"LocalExtractor: Skipping segment {idx} with empty text field: {seg_data}")
+            continue
         span_id = hashlib.md5(f"{chunk_index}_{idx}_{text}".encode()).hexdigest()[:12]
         
         action_details = None
@@ -313,16 +315,18 @@ def evidence_normalizer_node(state: GraphState) -> GraphState:
 
         # Skip if empty after cleaning
         if not text:
+            logger.info("EvidenceNormalizer: Dropping segment with empty text (original: %r)", seg.text)
             continue
 
         # Drop meta-action utterances — they acknowledge recording, not a real task
         if seg.intent == "action_item" and _META_ACTION_PATTERNS.match(text):
-            logger.debug("EvidenceNormalizer: Dropping meta-action segment: %s", text)
+            logger.info("EvidenceNormalizer: Dropping meta-action segment: %r", text)
             continue
 
         # Skip duplicates within chunk (exact text match)
         text_lower = text.lower()
         if text_lower in seen_texts:
+            logger.info("EvidenceNormalizer: Dropping duplicate segment: %r", text)
             continue
         seen_texts.add(text_lower)
 
