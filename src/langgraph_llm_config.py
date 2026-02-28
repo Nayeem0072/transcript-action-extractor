@@ -4,8 +4,13 @@ Active provider is selected via ACTIVE_PROVIDER in .env (root).
 Provider-specific settings live in configs/<provider>.env.
 
 Supported providers:
-  claude     -> configs/claude.env
-  ollama     -> configs/ollama_glm.env
+  claude        -> configs/claude.env        (all nodes use Anthropic Claude)
+  ollama        -> configs/ollama_glm.env    (all nodes use Ollama GLM local model)
+  gemini_mixed  -> configs/gemini_mixed.env  (per-node providers: Gemini + Claude)
+
+Per-node provider overrides:
+  Each node config reads <NODE>_PROVIDER first; falls back to global PROVIDER.
+  This allows mixing providers within a single run (e.g. gemini_mixed).
 
 To add a new provider, create configs/<provider>.env with PROVIDER=<name>
 and add the corresponding LLM factory branch in langgraph_nodes.py.
@@ -29,6 +34,7 @@ ACTIVE_PROVIDER = os.getenv("ACTIVE_PROVIDER", "ollama").strip().lower()
 _provider_env_map = {
     "claude": "configs/claude.env",
     "ollama": "configs/ollama_glm.env",
+    "gemini_mixed": "configs/gemini_mixed.env",
 }
 
 _provider_config_path = _provider_env_map.get(ACTIVE_PROVIDER)
@@ -79,10 +85,10 @@ DEFAULT_API_KEY = _get("LANGGRAPH_API_KEY") or _get("ANTHROPIC_API_KEY")
 # ============================================================================
 
 RELEVANCE_GATE_CONFIG = {
-    "provider": PROVIDER,
+    "provider": _get("RELEVANCE_GATE_PROVIDER", PROVIDER),
     "model_name": _get("RELEVANCE_GATE_MODEL_NAME", DEFAULT_MODEL_NAME),
     "api_url": _get("RELEVANCE_GATE_API_URL", DEFAULT_API_URL),
-    "api_key": _get("RELEVANCE_GATE_API_KEY") or _get("ANTHROPIC_API_KEY") or DEFAULT_API_KEY,
+    "api_key": _get("RELEVANCE_GATE_API_KEY") or _get("GOOGLE_API_KEY") or _get("ANTHROPIC_API_KEY") or DEFAULT_API_KEY,
     "temperature": float(_get("RELEVANCE_GATE_TEMPERATURE", "0.1")),
     "max_tokens": int(_get("RELEVANCE_GATE_MAX_TOKENS", "100")),
     "top_p": float(_get("RELEVANCE_GATE_TOP_P", "0.15")),
@@ -97,10 +103,10 @@ RELEVANCE_GATE_CONFIG = {
 # ============================================================================
 
 LOCAL_EXTRACTOR_CONFIG = {
-    "provider": PROVIDER,
+    "provider": _get("LOCAL_EXTRACTOR_PROVIDER", PROVIDER),
     "model_name": _get("LOCAL_EXTRACTOR_MODEL_NAME", DEFAULT_MODEL_NAME),
     "api_url": _get("LOCAL_EXTRACTOR_API_URL", DEFAULT_API_URL),
-    "api_key": _get("LOCAL_EXTRACTOR_API_KEY") or _get("ANTHROPIC_API_KEY") or DEFAULT_API_KEY,
+    "api_key": _get("LOCAL_EXTRACTOR_API_KEY") or _get("GOOGLE_API_KEY") or _get("ANTHROPIC_API_KEY") or DEFAULT_API_KEY,
     "temperature": float(_get("LOCAL_EXTRACTOR_TEMPERATURE", "0.2")),
     "max_tokens": int(_get("LOCAL_EXTRACTOR_MAX_TOKENS", "2000")),
     "top_p": float(_get("LOCAL_EXTRACTOR_TOP_P", "0.15")),
@@ -115,10 +121,10 @@ LOCAL_EXTRACTOR_CONFIG = {
 # ============================================================================
 
 CONTEXT_RESOLVER_CONFIG = {
-    "provider": PROVIDER,
+    "provider": _get("CONTEXT_RESOLVER_PROVIDER", PROVIDER),
     "model_name": _get("CONTEXT_RESOLVER_MODEL_NAME", DEFAULT_MODEL_NAME),
     "api_url": _get("CONTEXT_RESOLVER_API_URL", DEFAULT_API_URL),
-    "api_key": _get("CONTEXT_RESOLVER_API_KEY") or _get("ANTHROPIC_API_KEY") or DEFAULT_API_KEY,
+    "api_key": _get("CONTEXT_RESOLVER_API_KEY") or _get("ANTHROPIC_API_KEY") or _get("GOOGLE_API_KEY") or DEFAULT_API_KEY,
     "temperature": float(_get("CONTEXT_RESOLVER_TEMPERATURE", "0.3")),
     "max_tokens": int(_get("CONTEXT_RESOLVER_MAX_TOKENS", "2000")),
     "top_p": float(_get("CONTEXT_RESOLVER_TOP_P", "0.2")),
