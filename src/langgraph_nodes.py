@@ -23,8 +23,9 @@ def create_llm(cfg: dict):
     Unified LLM factory.
 
     Branches on cfg["provider"]:
-      - "claude"  -> ChatAnthropic (Anthropic API, no base_url, no Ollama-specific params)
-      - "ollama"  -> ChatOpenAI   (OpenAI-compatible, custom base_url, extra_body params)
+      - "claude"  -> ChatAnthropic        (Anthropic API)
+      - "gemini"  -> ChatGoogleGenerativeAI (Google Generative AI API)
+      - "ollama"  -> ChatOpenAI           (OpenAI-compatible, custom base_url)
 
     To add a new provider (e.g. "openai" for GPT):
       1. Create configs/gpt.env with PROVIDER=openai
@@ -40,6 +41,15 @@ def create_llm(cfg: dict):
             temperature=cfg["temperature"],
             max_tokens=cfg["max_tokens"],
             timeout=cfg.get("timeout", 60),
+        )
+
+    elif provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            model=cfg["model_name"],
+            google_api_key=cfg.get("api_key") or None,
+            temperature=cfg["temperature"],
+            max_output_tokens=cfg["max_tokens"],
         )
 
     elif provider == "ollama":
@@ -556,28 +566,32 @@ Previous actions:
     ])
 
     from pydantic import BaseModel as PydanticBaseModel, field_validator
+    from typing import List
 
     class ResolutionResult(PydanticBaseModel):
-        resolved_segments: list[dict]
-        new_actions: list[dict]
-        updated_actions: list[dict]
-        still_unresolved: list[dict]
+        resolved_segments: List[dict] = []
+        new_actions: List[dict] = []
+        updated_actions: List[dict] = []
+        still_unresolved: List[dict] = []
 
         @field_validator("resolved_segments", "new_actions", "updated_actions", "still_unresolved", mode="before")
         @classmethod
         def strings_to_dicts(cls, v: list) -> list:
-            """Accept list of dicts or list of strings; normalize strings to {'text': value}."""
+            """Accept list of dicts or list of strings; normalize strings to {'text': value}.
+            Empty dicts are dropped since they carry no usable information."""
             if not isinstance(v, list):
-                return v
+                return []
             out = []
             for item in v:
                 if isinstance(item, str):
                     out.append({"text": item})
-                elif isinstance(item, dict):
+                elif isinstance(item, dict) and item:  # skip empty {}
                     out.append(item)
             return out
 
-    structured_llm = llm.with_structured_output(ResolutionResult, method="json_mode")
+    # Use default method (tool calling for Claude/Gemini) — more reliable than
+    # json_mode, which only ensures valid JSON but does not enforce the schema.
+    structured_llm = llm.with_structured_output(ResolutionResult)
     chain = prompt | structured_llm
 
     timeout_sec = CONTEXT_RESOLVER_CONFIG.get("timeout", 120)
