@@ -7,9 +7,9 @@ from typing import Dict, Any, List
 from pydantic import BaseModel as PydanticBaseModel
 from langchain_core.prompts import ChatPromptTemplate
 
-from .langgraph_state import GraphState
-from .langgraph_models import Segment, Action, ActionDetails
-from .langgraph_llm_config import LOCAL_EXTRACTOR_CONFIG, CROSS_CHUNK_RESOLVER_CONFIG
+from .state import GraphState
+from .models import Segment, Action, ActionDetails
+from .llm_config import LOCAL_EXTRACTOR_CONFIG, CROSS_CHUNK_RESOLVER_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ def create_llm(cfg: dict):
     else:
         raise ValueError(
             f"Unsupported provider '{provider}'. "
-            "Add a branch in create_llm() in langgraph_nodes.py to support it."
+            "Add a branch in create_llm() in nodes.py to support it."
         )
 
 

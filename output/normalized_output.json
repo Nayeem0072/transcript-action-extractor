@@ -1,21 +1,21 @@
 [
   {
-    "id": "1bc7c0cb",
-    "description": "Note down the agreed-upon MVP scope for Client Delta delivery, specifically: authentication, dashboard, basic reports (summary table only), and no custom exports.",
+    "id": "ab420bf4",
+    "description": "Note the agreed-upon MVP definition for Client Delta, which includes authentication, dashboard, basic reports (summary table only), basic roles (admin and user only), and no custom exports.",
     "assignee": "Priya",
     "raw_deadline": null,
     "normalized_deadline": null,
     "speaker": "Priya",
-    "verb": "note_down",
+    "verb": "note",
     "confidence": 1.0,
     "tool_type": "create_notion_doc",
     "tool_params": {
-      "page_title": "Down the agreed-upon mvp scope for client delta delivery, sp",
-      "content_hint": "Note down the agreed-upon MVP scope for Client Delta delivery, specifically: authentication, dashboard, basic reports (summary table only), and no custom exports.",
+      "page_title": "The agreed-upon mvp definition for client delta, which inclu",
+      "content_hint": "Note the agreed-upon MVP definition for Client Delta, which includes authentication, dashboard, basic reports (summary table only), basic roles (admin and user only), and no custom exports.",
       "template": "meeting-action"
     },
     "source_spans": [
-      "7acd1c9743cb"
+      "c8a8b754dce7"
     ],
     "parent_id": null,
     "meeting_window": [
@@ -25,28 +25,28 @@
     "action_category": "documentation",
     "topic_tags": [
       "mvp",
-      "scope",
-      "documentation",
-      "client delta"
+      "definition",
+      "client delta",
+      "scope"
     ]
   },
   {
-    "id": "5bc18303",
-    "description": "Draft the update email to the client, including the phased delivery plan and mentioning the scope change impact.",
+    "id": "d8bf7a3a",
+    "description": "Draft an update email to the client to reset expectations, including the phased delivery plan and mentioning the scope change impact.",
     "assignee": "John",
-    "raw_deadline": "after this",
-    "normalized_deadline": "2026-03-05",
+    "raw_deadline": "after this meeting",
+    "normalized_deadline": "2026-03-06",
     "speaker": "John",
     "verb": "draft",
     "confidence": 1.0,
     "tool_type": "send_email",
     "tool_params": {
       "to": "John",
-      "subject_hint": "Draft the update email to the client, including the phased d",
-      "body_hint": "Draft the update email to the client, including the phased delivery plan and mentioning the scope change impact."
+      "subject_hint": "Draft an update email to the client to reset expectations, i",
+      "body_hint": "Draft an update email to the client to reset expectations, including the phased delivery plan and mentioning the scope change impact."
     },
     "source_spans": [
-      "6261e0486577"
+      "928086cc063f"
     ],
     "parent_id": null,
     "meeting_window": [
@@ -57,28 +57,29 @@
     "topic_tags": [
       "client",
       "email",
-      "update",
-      "communication"
+      "expectations",
+      "delivery",
+      "scope"
     ]
   },
   {
-    "id": "b4a926e5",
-    "description": "Schedule a bug bash session for March 10, possibly in the afternoon around 2 PM.",
+    "id": "285bc753",
+    "description": "Schedule a bug bash session before release for March 10th, afternoon around 2 PM.",
     "assignee": "John",
     "raw_deadline": "March 10",
     "normalized_deadline": "2026-03-10",
     "speaker": "John",
     "verb": "schedule",
-    "confidence": 0.8,
+    "confidence": 1.0,
     "tool_type": "set_calendar",
     "tool_params": {
-      "event_name": "Bug bash session for march 10, possibly in the afternoon around 2 pm.",
+      "event_name": "Bug bash session before release for march 10th, afternoon around 2 pm.",
       "date": "2026-03-10",
       "time": null,
       "participants": []
     },
     "source_spans": [
-      "0ae76324ef8c"
+      "6d389f2865c0"
     ],
     "parent_id": null,
     "meeting_window": [
@@ -88,14 +89,13 @@
     "action_category": "event",
     "topic_tags": [
       "bug bash",
-      "release",
       "scheduling",
-      "event"
+      "release"
     ]
   },
   {
-    "id": "385bbc82",
-    "description": "John will talk to finance regarding the infrastructure cost spike caused by logs going into infinite debug mode in production.",
+    "id": "966e958a",
+    "description": "John will talk to the finance department to inform them about the infrastructure cost spike caused by logs going into debug mode in production.",
     "assignee": "John",
     "raw_deadline": null,
     "normalized_deadline": null,
@@ -104,12 +104,12 @@
     "confidence": 1.0,
     "tool_type": "send_notification",
     "tool_params": {
-      "recipient": "finance",
+      "recipient": "the",
       "channel": "slack",
-      "message_hint": "John will talk to finance regarding the infrastructure cost spike caused by logs going into infinite debug mode in production."
+      "message_hint": "John will talk to the finance department to inform them about the infrastructure cost spike caused by logs going into debug mode in production."
     },
     "source_spans": [
-      "ddfa855f9980"
+      "c38558e96c2d"
     ],
     "parent_id": null,
     "meeting_window": [
@@ -124,8 +124,8 @@
     ]
   },
   {
-    "id": "06abc06b",
-    "description": "Priya to create a task for fixing the monitoring alert rules that failed to fire when logs went into infinite mode, causing an infrastructure cost spike.",
+    "id": "769bf590",
+    "description": "Priya will create a task to fix the monitoring alert rules that failed to fire during the recent log level incident.",
     "assignee": "Priya",
     "raw_deadline": null,
     "normalized_deadline": null,
@@ -134,7 +134,7 @@
     "confidence": 1.0,
     "tool_type": "create_jira_task",
     "tool_params": {
-      "title": "Priya to create a task for fixing the monitoring alert rules that failed to fire when logs went into",
+      "title": "Priya will create a task to fix the monitoring alert rules that failed to fire during the recent log",
       "assignee": "Priya",
       "priority": "high",
       "due_date": null,
@@ -146,7 +146,7 @@
       ]
     },
     "source_spans": [
-      "4492fa891e11"
+      "d8bd7308a17b"
     ],
     "parent_id": null,
     "meeting_window": [
@@ -162,19 +162,19 @@
     ]
   },
   {
-    "id": "827f2948",
+    "id": "16026394",
     "description": "Mike needs to check the color contrast as part of the accessibility review, which was skipped last sprint.",
     "assignee": "Mike",
     "raw_deadline": null,
     "normalized_deadline": null,
     "speaker": "Mike",
     "verb": "review",
-    "confidence": 0.8,
+    "confidence": 1.0,
     "tool_type": "create_jira_task",
     "tool_params": {
       "title": "Mike needs to check the color contrast as part of the accessibility review, which was skipped last s",
       "assignee": "Mike",
-      "priority": "medium",
+      "priority": "high",
       "due_date": null,
       "labels": [
         "accessibility",
@@ -183,7 +183,7 @@
       ]
     },
     "source_spans": [
-      "723baf6779ac"
+      "a1b1c5350523"
     ],
     "parent_id": null,
     "meeting_window": [
@@ -198,9 +198,9 @@
     ]
   },
   {
-    "id": "86221f14",
-    "description": "Add the task for an accessibility review to the first phase of the project.",
-    "assignee": "Priya",
+    "id": "72b7a90b",
+    "description": "Add an accessibility review to phase one of the project plan.",
+    "assignee": "John",
     "raw_deadline": null,
     "normalized_deadline": null,
     "speaker": "John",
@@ -208,8 +208,8 @@
     "confidence": 1.0,
     "tool_type": "create_jira_task",
     "tool_params": {
-      "title": "Add the task for an accessibility review to the first phase of the project.",
-      "assignee": "Priya",
+      "title": "Add an accessibility review to phase one of the project plan.",
+      "assignee": "John",
       "priority": "high",
       "due_date": null,
       "labels": [
@@ -234,8 +234,8 @@
     ]
   },
   {
-    "id": "9b138d25",
-    "description": "Sara needs to own the user guide draft.",
+    "id": "44efd2c0",
+    "description": "Sara to own the user guide draft.",
     "assignee": "Sara",
     "raw_deadline": null,
     "normalized_deadline": null,
@@ -244,8 +244,8 @@
     "confidence": 1.0,
     "tool_type": "create_notion_doc",
     "tool_params": {
-      "page_title": "Sara needs to own the user guide draft.",
-      "content_hint": "Sara needs to own the user guide draft.",
+      "page_title": "Sara to own the user guide draft.",
+      "content_hint": "Sara to own the user guide draft.",
       "template": "meeting-action"
     },
     "source_spans": [
@@ -264,8 +264,8 @@
     ]
   },
   {
-    "id": "16e21f10",
-    "description": "Priya will check with the security team regarding the internal security review.",
+    "id": "122f5ef0",
+    "description": "Priya to check with the security team regarding the security review.",
     "assignee": "Priya",
     "raw_deadline": null,
     "normalized_deadline": null,
@@ -276,10 +276,10 @@
     "tool_params": {
       "recipient": null,
       "channel": "slack",
-      "message_hint": "Priya will check with the security team regarding the internal security review."
+      "message_hint": "Priya to check with the security team regarding the security review."
     },
     "source_spans": [
-      "615d00e96062"
+      "767eb36c8da1"
     ],
     "parent_id": null,
     "meeting_window": [
@@ -290,7 +290,8 @@
     "topic_tags": [
       "security",
       "review",
-      "team"
+      "team",
+      "check"
     ]
   }
 ]

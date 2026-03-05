@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel as PydanticBaseModel
 
-from .action_normalizer_data import (
+from .data import (
     ACTION_CATEGORY_TOOL_MAP,
     COMPOUND_SPLIT_VERBS,
     DEDUP_STOP_WORDS,
@@ -26,10 +26,10 @@ from .action_normalizer_data import (
     VERB_PHRASES,
     VERB_UPGRADES,
 )
-from .action_normalizer_models import NormalizedAction, ToolType
-from .action_normalizer_state import NormalizerState
-from .langgraph_llm_config import LOCAL_EXTRACTOR_CONFIG
-from .langgraph_nodes import create_llm
+from .models import NormalizedAction, ToolType
+from .state import NormalizerState
+from ..action_extractor.llm_config import LOCAL_EXTRACTOR_CONFIG
+from ..action_extractor.nodes import create_llm
 
 try:
     from dateutil import parser as _dateutil_parser

@@ -7,15 +7,15 @@ from typing import List, Optional
 
 from langgraph.graph import END, StateGraph
 
-from .action_normalizer_models import NormalizedAction
-from .action_normalizer_nodes import (
+from .models import NormalizedAction
+from .nodes import (
     action_splitter_node,
     deadline_normalizer_node,
     deduplicator_node,
     tool_classifier_node,
     verb_enricher_node,
 )
-from .action_normalizer_state import NormalizerState
+from .state import NormalizerState
 
 logger = logging.getLogger(__name__)
 

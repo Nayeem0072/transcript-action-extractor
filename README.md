@@ -43,10 +43,10 @@ pip install -r requirements.txt
 cp .env.example .env       # then edit .env (see Configuration below)
 
 # 4. Extract action items from a transcript
-python run_langgraph.py input.txt            # → output.json
+python run_extractor.py input/input.txt      # → output/output.json
 
 # 5. Normalize into tool-ready actions
-python run_normalizer.py output.json         # → normalized_output.json
+python run_normalizer.py                     # → output/normalized_output.json
 ```
 
 ---
@@ -167,34 +167,34 @@ LANGGRAPH_API_KEY=ollama   # any non-empty string; Ollama ignores it
 
 ### Extractor
 
-**Default files** (`input.txt` → `output.json`):
+**Default files** (`input/input.txt` → `output/output.json`):
 
 ```bash
-python run_langgraph.py
+python run_extractor.py
 ```
 
-**Custom input** (output still goes to `output.json`):
+**Custom input** (output still goes to `output/output.json`):
 
 ```bash
-python run_langgraph.py my_transcript.txt
+python run_extractor.py my_transcript.txt
 ```
 
 **Custom input and output:**
 
 ```bash
-python run_langgraph.py my_transcript.txt my_output.json
+python run_extractor.py my_transcript.txt my_output.json
 ```
 
 **As a Python module:**
 
 ```bash
-python -m src.langgraph_main my_transcript.txt my_output.json
+python -m src.action_extractor.main my_transcript.txt my_output.json
 ```
 
 **As a library:**
 
 ```python
-from src.langgraph_workflow import extract_actions
+from src.action_extractor.workflow import extract_actions
 
 actions = extract_actions(transcript_raw="<your transcript text>")
 # returns a list of dicts, one per action item
@@ -217,9 +217,9 @@ JSON input is also supported if the file contains a `transcript_raw` field.
 
 ### Normalizer
 
-The normalizer reads an extractor output file (JSON array) and writes a `normalized_output.json` with each action mapped to a specific tool.
+The normalizer reads an extractor output file (JSON array) and writes a `output/normalized_output.json` with each action mapped to a specific tool.
 
-**Default** (`output.json` → `normalized_output.json`):
+**Default** (`output/output.json` → `output/normalized_output.json`):
 
 ```bash
 python run_normalizer.py
@@ -228,21 +228,21 @@ python run_normalizer.py
 **Custom input and output:**
 
 ```bash
-python run_normalizer.py output.json result.json
+python run_normalizer.py output/output.json result.json
 ```
 
 **With an explicit meeting date** (used for relative deadline resolution — defaults to today):
 
 ```bash
-python run_normalizer.py output.json result.json --meeting-date 2026-03-05
+python run_normalizer.py output/output.json result.json --meeting-date 2026-03-05
 ```
 
 **As a library:**
 
 ```python
-from src.action_normalizer_workflow import normalize_actions
+from src.action_normalizer.workflow import normalize_actions
 
-# raw_actions is the list returned by extract_actions() or loaded from output.json
+# raw_actions is the list returned by extract_actions() or loaded from output/output.json
 normalized = normalize_actions(raw_actions, meeting_date="2026-03-05")
 # returns a list of NormalizedAction dicts
 ```
@@ -536,7 +536,7 @@ An LLM batch call is made only for actions that remain as `general_task` after a
 
 ### Extractor output
 
-Written to `output.json` (or the path you specify). A JSON array, one object per action item.
+Written to `output/output.json` (or the path you specify). A JSON array, one object per action item.
 
 | Field | Type | Description |
 |---|---|---|
@@ -585,13 +585,13 @@ Example:
 ]
 ```
 
-An execution log is written to `output_log.txt` with per-node timing, segment counts, and the final action list.
+An execution log is written to `output/output_log.txt` with per-node timing, segment counts, and the final action list.
 
 ---
 
 ### Normalizer output
 
-Written to `normalized_output.json` (or the path you specify). A JSON array of `NormalizedAction` objects.
+Written to `output/normalized_output.json` (or the path you specify). A JSON array of `NormalizedAction` objects.
 
 | Field | Type | Description |
 |---|---|---|
@@ -685,7 +685,7 @@ Example (two actions from a single compound split, plus a classification example
 ]
 ```
 
-An execution log is written to `normalizer_log.txt`.
+An execution log is written to `output/normalizer_log.txt`.
 
 ---
 
@@ -722,21 +722,34 @@ agent-ai/
 ├── src/
 │   ├── __init__.py
 │   │
-│   │   ── Extractor ──────────────────────────────────────────────────────
-│   ├── langgraph_main.py              # CLI entry point (extractor)
-│   ├── langgraph_workflow.py          # Extractor graph + extract_actions()
-│   ├── langgraph_nodes.py             # All extractor node implementations
-│   ├── langgraph_state.py             # Extractor graph state (TypedDict)
-│   ├── langgraph_models.py            # Pydantic models: Segment, Action, ActionDetails
-│   ├── langgraph_llm_config.py        # Per-node LLM config (loaded from .env + configs/)
+│   ├── action_extractor/              # ── Extractor ──────────────────────
+│   │   ├── __init__.py
+│   │   ├── main.py                    # CLI entry point
+│   │   ├── workflow.py                # Extractor graph + extract_actions()
+│   │   ├── nodes.py                   # All extractor node implementations
+│   │   ├── state.py                   # Extractor graph state (TypedDict)
+│   │   ├── models.py                  # Pydantic models: Segment, Action, ActionDetails
+│   │   └── llm_config.py              # Per-node LLM config (loaded from .env + configs/)
 │   │
-│   │   ── Normalizer ────────────────────────────────────────────────────
-│   ├── action_normalizer_workflow.py  # Normalizer graph + normalize_actions()
-│   ├── action_normalizer_nodes.py     # All normalizer node implementations
-│   ├── action_normalizer_state.py     # Normalizer graph state (TypedDict)
-│   ├── action_normalizer_models.py    # Pydantic models: NormalizedAction, ToolType
-│   └── action_normalizer_data.py      # Rule-based data: verb dict, tool map, patterns
+│   └── action_normalizer/             # ── Normalizer ──────────────────────
+│       ├── __init__.py
+│       ├── workflow.py                # Normalizer graph + normalize_actions()
+│       ├── nodes.py                   # All normalizer node implementations
+│       ├── state.py                   # Normalizer graph state (TypedDict)
+│       ├── models.py                  # Pydantic models: NormalizedAction, ToolType
+│       └── data.py                    # Rule-based data: verb dict, tool map, patterns
 │
+├── input/
+│   ├── input.txt                      # Default input transcript
+│   ├── input_very_small.txt           # Small test transcript (63 turns)
+│   ├── input_small.txt                # Medium test transcript
+│   ├── input_large.txt                # Large test transcript
+│   └── real_input.txt                 # Real meeting transcript
+├── output/                            # Generated on run (gitignored)
+│   ├── output.json                    # Extractor output
+│   ├── normalized_output.json         # Normalizer output
+│   ├── output_log.txt                 # Extractor execution log
+│   └── normalizer_log.txt             # Normalizer execution log
 ├── configs/
 │   ├── gemini_mixed.env               # Gemini Flash provider config
 │   ├── claude.env                     # Claude Haiku provider config
@@ -745,15 +758,8 @@ agent-ai/
 │   ├── test_langchain_to_llm.py
 │   └── test_langchain_to_llm_standalone.py
 ├── docs/
-├── run_langgraph.py                   # Extractor runner (wraps src.langgraph_main)
+├── run_extractor.py                   # Extractor runner (wraps src.action_extractor.main)
 ├── run_normalizer.py                  # Normalizer runner with summary table
-├── input.txt                          # Default input transcript
-├── input_very_small.txt               # Small test transcript (63 turns)
-├── input_small.txt                    # Medium test transcript
-├── output.json                        # Extractor output (generated on run)
-├── normalized_output.json             # Normalizer output (generated on run)
-├── output_log.txt                     # Extractor execution log
-├── normalizer_log.txt                 # Normalizer execution log
 ├── .env                               # API keys and ACTIVE_PROVIDER (gitignored)
 └── requirements.txt
 ```

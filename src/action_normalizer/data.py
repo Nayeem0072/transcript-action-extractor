@@ -3,7 +3,7 @@ Pure-data lookup tables for the Action Normalizer pipeline.
 
 All constants here are rule-based — no imports from LLM or network code.
 """
-from .action_normalizer_models import ToolType
+from .models import ToolType
 
 
 # ---------------------------------------------------------------------------

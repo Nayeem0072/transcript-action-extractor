@@ -2,12 +2,12 @@
 CLI entry point for the Action Normalizer pipeline.
 
 Usage:
-  python run_normalizer.py                            # reads output.json → normalized_output.json
-  python run_normalizer.py output.json                # custom input file
-  python run_normalizer.py output.json result.json    # custom input and output
-  python run_normalizer.py output.json result.json --meeting-date 2026-03-05
+  python run_normalizer.py                                          # reads output/output.json → output/normalized_output.json
+  python run_normalizer.py output/output.json                      # custom input file
+  python run_normalizer.py output/output.json result.json          # custom input and output
+  python run_normalizer.py output/output.json result.json --meeting-date 2026-03-05
 
-The input file must be a JSON array of action objects (the output of run_langgraph.py).
+The input file must be a JSON array of action objects (the output of run_extractor.py).
 The --meeting-date flag sets the reference date for relative deadline resolution
 (e.g. "after the meeting" → that date).  Defaults to today.
 """
@@ -20,13 +20,13 @@ from pathlib import Path
 # Ensure the project root is on the path regardless of where the script is run from
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.action_normalizer_workflow import normalize_actions
+from src.action_normalizer.workflow import normalize_actions
 
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 _LOG_DATEFMT = "%H:%M:%S"
 
 
-def _setup_logging(log_file: str = "normalizer_log.txt") -> None:
+def _setup_logging(log_file: str = "output/normalizer_log.txt") -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     if root.handlers:
@@ -36,6 +36,7 @@ def _setup_logging(log_file: str = "normalizer_log.txt") -> None:
     stderr_handler.setFormatter(formatter)
     root.addHandler(stderr_handler)
     try:
+        Path(log_file).parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
         file_handler.setFormatter(formatter)
         root.addHandler(file_handler)
@@ -49,8 +50,8 @@ logger = logging.getLogger(__name__)
 def _parse_args() -> tuple[str, str, str | None]:
     """Return (input_file, output_file, meeting_date_or_None)."""
     args = sys.argv[1:]
-    input_file = "output.json"
-    output_file = "normalized_output.json"
+    input_file = "output/output.json"
+    output_file = "output/normalized_output.json"
     meeting_date = None
 
     positional: list[str] = []
@@ -117,6 +118,7 @@ def main() -> None:
     # Write output
     output_path = Path(output_file)
     try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(normalized, f, indent=2, ensure_ascii=False)
     except OSError as exc:

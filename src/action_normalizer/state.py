@@ -1,7 +1,7 @@
 """State definition for the Action Normalizer LangGraph pipeline."""
 from typing import TypedDict, List, Optional
 
-from .action_normalizer_models import NormalizedAction
+from .models import NormalizedAction
 
 
 class NormalizerState(TypedDict, total=False):
