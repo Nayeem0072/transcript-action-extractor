@@ -1,0 +1,50 @@
+{
+  "people": {
+    "Priya": {
+      "email": "priya@company.com",
+      "slack_handle": "@priya",
+      "notion_workspace": "company-workspace",
+      "jira_user": "priya",
+      "connections": {
+        "security_team": {
+          "slack_channel": "#security",
+          "email": "security@company.com"
+        }
+      }
+    },
+    "John": {
+      "email": "john466@gmail.com",
+      "slack_handle": "@john",
+      "jira_user": "john",
+      "connections": {
+        "finance": {
+          "email": "finance.companyname@gmail.com",
+          "slack_channel": "#finance"
+        },
+        "dev_team": {
+          "slack_channel": "#dev-team",
+          "members": [
+            { "name": "Ash",   "email": "ash.who@gmail.com",  "slack_handle": "@ash"   },
+            { "name": "Kajan", "email": "kazz@gmail.com",     "slack_handle": "@kajan" }
+          ]
+        },
+        "client_delta": {
+          "email": "client-delta@external.com"
+        }
+      }
+    },
+    "Mike": {
+      "email": "mike@company.com",
+      "slack_handle": "@mike",
+      "jira_user": "mike",
+      "connections": {}
+    },
+    "Sara": {
+      "email": "sara@company.com",
+      "slack_handle": "@sara",
+      "notion_workspace": "company-workspace",
+      "jira_user": "sara",
+      "connections": {}
+    }
+  }
+}
