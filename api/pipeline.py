@@ -45,12 +45,12 @@ def run_pipeline_sync(
             sys.path.insert(0, str(project_root))
 
         from src.action_extractor.main import load_transcript
-        from src.action_extractor.workflow import extract_actions
+        from src.action_extractor.workflow import extract_actions_with_progress
     except Exception as e:
         _emit(emit_cb, "error", {"message": str(e), "code": "import_error"})
         return
 
-    # --- EXTRACTOR ---
+    # --- EXTRACTOR (node-level steps: load_transcript, segmenter, chunks, parallel_extractor, evidence_normalizer, cross_chunk_resolver, global_deduplicator, action_finalizer) ---
     _emit(emit_cb, "progress", {
         "agent": "extractor",
         "step": "load_transcript",
@@ -64,21 +64,15 @@ def run_pipeline_sync(
 
     _emit(emit_cb, "step_done", {"agent": "extractor", "step": "load_transcript"})
 
-    _emit(emit_cb, "progress", {
-        "agent": "extractor",
-        "step": "process_chunks",
-        "status": "running",
-    })
     try:
-        actions = extract_actions(transcript)
+        actions = extract_actions_with_progress(transcript, emit_cb)
     except Exception as e:
         logger.exception("Extractor failed")
-        _emit(emit_cb, "error", {"message": str(e), "agent": "extractor", "step": "extract_actions"})
+        _emit(emit_cb, "error", {"message": str(e), "agent": "extractor", "step": "extraction"})
         return
 
     logger.info("Extractor done: %d action(s) -> %s", len(actions), json.dumps(actions, default=str, ensure_ascii=False))
 
-    _emit(emit_cb, "step_done", {"agent": "extractor", "step": "extract_actions"})
     _emit(emit_cb, "agent_done", {"agent": "extractor"})
     _emit(emit_cb, "run_complete", {
         "summary": {"actions_extracted": len(actions)},

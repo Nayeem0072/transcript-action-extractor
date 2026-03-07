@@ -160,12 +160,14 @@ async def stream_run(run_id: str) -> StreamingResponse:
                     item = await asyncio.wait_for(queue.get(), timeout=300.0)
                 except asyncio.TimeoutError:
                     yield _sse_message("progress", {"agent": None, "step": "waiting", "status": "running"})
+                    await asyncio.sleep(0)
                     continue
                 if item is None:
                     break
                 event_type = item.get("event")
                 data = item.get("data", {})
                 yield _sse_message(event_type, data)
+                await asyncio.sleep(0)
         finally:
             pass
 

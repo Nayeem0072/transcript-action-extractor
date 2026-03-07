@@ -137,7 +137,22 @@ curl -N -H "Accept: text/event-stream" \
 | `run_complete` | Whole pipeline finished. | Optional `summary` (e.g. `actions_extracted`). |
 | `error` | Run or step failed. | `message`; optional `code`, `agent`, `step`. |
 
-### Example stream (extractor only)
+### Extractor steps (SSE `step` values)
+
+Progress follows the extractor graph nodes so the frontend can show accurate steps:
+
+| Step | Description |
+|------|-------------|
+| `load_transcript` | Load transcript from the uploaded/referenced file. |
+| `segmenter` | Split transcript into chunks (by speaker turns, 20 turns per chunk). |
+| `chunks` | Progress event when segmenter is done (no current/total). |
+| `parallel_extractor` | Extract segments from each chunk (LLM). Progress events with `current`/`total` (e.g. 7/12) as each chunk completes. |
+| `evidence_normalizer` | Clean ASR noise, drop meta-actions, convert segments to actions. |
+| `cross_chunk_resolver` | Merge cross-chunk duplicates, resolve vague references. |
+| `global_deduplicator` | Remove duplicate actions by similarity. |
+| `action_finalizer` | Schema enforcement, sort, drop low-confidence. |
+
+### Example stream (extractor, node-level)
 
 ```
 event: progress
@@ -146,11 +161,34 @@ data: {"agent": "extractor", "step": "load_transcript", "status": "running"}
 event: step_done
 data: {"agent": "extractor", "step": "load_transcript"}
 
+event: step_done
+data: {"agent": "extractor", "step": "segmenter"}
+
 event: progress
-data: {"agent": "extractor", "step": "process_chunks", "status": "running"}
+data: {"agent": "extractor", "step": "chunks", "status": "running"}
+
+event: progress
+data: {"agent": "extractor", "step": "parallel_extractor", "status": "running", "current": 1, "total": 12}
+
+event: progress
+data: {"agent": "extractor", "step": "parallel_extractor", "status": "running", "current": 2, "total": 12}
+
+… (further parallel_extractor progress: 3/12, 4/12, …)
 
 event: step_done
-data: {"agent": "extractor", "step": "extract_actions"}
+data: {"agent": "extractor", "step": "parallel_extractor"}
+
+event: step_done
+data: {"agent": "extractor", "step": "evidence_normalizer"}
+
+event: step_done
+data: {"agent": "extractor", "step": "cross_chunk_resolver"}
+
+event: step_done
+data: {"agent": "extractor", "step": "global_deduplicator"}
+
+event: step_done
+data: {"agent": "extractor", "step": "action_finalizer"}
 
 event: agent_done
 data: {"agent": "extractor"}
@@ -169,10 +207,4 @@ data: {"summary": {"actions_extracted": 5}}
 
 ## Pipeline (current behavior)
 
-Only the **extractor** stage is run:
-
-1. **load_transcript** — Load transcript from the uploaded/referenced file.
-2. **process_chunks** / **extract_actions** — Run the LangGraph extractor (segment → extract → normalize → resolve → dedupe → finalize).
-3. **run_complete** — Emit summary with `actions_extracted` count.
-
-Normalizer and executor are not executed yet; they will be added in a later version.
+Only the **extractor** stage runs. Progress is emitted at **node level** (segmenter, parallel_extractor with chunk progress like 7/12, evidence_normalizer, cross_chunk_resolver, global_deduplicator, action_finalizer). Normalizer and executor are not executed yet.
