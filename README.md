@@ -1,6 +1,6 @@
-# LangGraph Meeting Action Item Extractor + Normalizer
+# LangGraph Meeting Action Item Extractor + Normalizer + Executor
 
-Extracts structured action items from raw meeting transcripts using a parallel LangGraph pipeline, then normalizes each action into a ready-to-execute tool call — email, Jira ticket, calendar event, or Notion document. Supports multiple LLM providers — run fully locally via Ollama, or use Gemini or Claude APIs for higher accuracy.
+Extracts structured action items from raw meeting transcripts using a parallel LangGraph pipeline, normalizes each action into a ready-to-execute tool call, and then executes it via MCP servers — sending emails, creating Jira tickets, scheduling calendar events, posting Slack messages, and creating Notion docs. Supports multiple LLM providers — run fully locally via Ollama, or use Gemini or Claude APIs for higher accuracy.
 
 ---
 
@@ -27,6 +27,14 @@ Extracts structured action items from raw meeting transcripts using a parallel L
 - **Tool parameter extraction** — pulls structured, tool-ready parameters from the description (recipient, subject, priority, event time, etc.) using regex — no extra LLM calls
 - **Hybrid approach** — rule-based dictionaries and regex patterns handle ~90% of cases; LLM is only called for genuinely ambiguous splits or unclassifiable actions
 
+### Executor
+
+- **Relation graph** — a user-editable `contacts.json` registry mapping each person to their email, Slack handle, Notion workspace, Jira username, and named connections (teams, departments, external parties)
+- **Contact resolution** — automatically enriches `tool_params` with real addresses and channels: `"to": "John"` → `"to": "john466@gmail.com"`, empty participants filled from dev team member list, garbage recipients replaced with the correct Slack channel
+- **Topic-tag routing** — maps action topic tags (`"bug bash"`, `"finance"`, `"security"`) to the right connection in the graph without any manual field mapping
+- **MCP dispatch** — routes each action to the appropriate MCP server: Gmail, Google Calendar, Slack, Notion, or Jira via `langchain-mcp-adapters`
+- **Dry-run mode** — default behaviour logs what *would* be sent to each MCP server without spawning any processes or requiring credentials — safe for testing the full pipeline end-to-end
+
 ---
 
 ## Quickstart
@@ -47,6 +55,12 @@ python run_extractor.py input/input.txt      # → output/output.json
 
 # 5. Normalize into tool-ready actions
 python run_normalizer.py                     # → output/normalized_output.json
+
+# 6. Dry-run the executor — resolve contacts + preview MCP calls (no credentials needed)
+python run_executor.py                       # reads output/normalized_output.json
+
+# 7. Live execution — actually call MCP servers (add credentials to .env first)
+python run_executor.py --live                # → output/execution_results.json
 ```
 
 ---
@@ -71,6 +85,8 @@ Dependencies:
 | `pydantic` | Data models and structured output |
 | `python-dotenv` | `.env` file loading |
 | `python-dateutil` | Deadline parsing (`"March 10"` → `2026-03-10`) |
+| `mcp` | MCP server SDK (used by langchain-mcp-adapters) |
+| `langchain-mcp-adapters` | Wraps MCP server tools as callable LangChain tools |
 
 ---
 
@@ -217,7 +233,7 @@ JSON input is also supported if the file contains a `transcript_raw` field.
 
 ### Normalizer
 
-The normalizer reads an extractor output file (JSON array) and writes a `output/normalized_output.json` with each action mapped to a specific tool.
+The normalizer reads an extractor output file (JSON array) and writes `output/normalized_output.json` with each action mapped to a specific tool.
 
 **Default** (`output/output.json` → `output/normalized_output.json`):
 
@@ -247,13 +263,13 @@ normalized = normalize_actions(raw_actions, meeting_date="2026-03-05")
 # returns a list of NormalizedAction dicts
 ```
 
-**End-to-end pipeline in Python:**
+**End-to-end pipeline (Stage 1 + 2) in Python:**
 
 ```python
-from src.langgraph_workflow import extract_actions
-from src.action_normalizer_workflow import normalize_actions
+from src.action_extractor.workflow import extract_actions
+from src.action_normalizer.workflow import normalize_actions
 
-actions = extract_actions(transcript_raw=open("meeting.txt").read())
+actions    = extract_actions(transcript_raw=open("meeting.txt").read())
 normalized = normalize_actions(actions, meeting_date="2026-03-05")
 ```
 
@@ -273,12 +289,89 @@ The normalizer prints a summary table to stdout on completion:
 
 ---
 
+### Executor
+
+The executor resolves contact details from the relation graph, then dispatches each action to the appropriate MCP server.
+
+**Dry-run (default) — inspect enriched params and preview MCP calls, no credentials needed:**
+
+```bash
+python run_executor.py
+```
+
+**Custom input:**
+
+```bash
+python run_executor.py output/normalized_output.json
+```
+
+**Custom input and output:**
+
+```bash
+python run_executor.py output/normalized_output.json output/execution_results.json
+```
+
+**Use a custom contacts file:**
+
+```bash
+python run_executor.py --contacts path/to/my_contacts.json
+```
+
+**Live mode — actually call MCP servers** (add service credentials to `.env` first):
+
+```bash
+python run_executor.py --live
+python run_executor.py output/normalized_output.json output/execution_results.json --live
+```
+
+**As a library:**
+
+```python
+from src.action_executor.workflow import execute_actions
+
+# normalized is the list returned by normalize_actions()
+results = execute_actions(normalized, dry_run=True)
+# returns a list of result dicts: {id, tool_type, server, mcp_tool, params, status, response, error}
+```
+
+**Full end-to-end pipeline (all three stages) in Python:**
+
+```python
+from src.action_extractor.workflow import extract_actions
+from src.action_normalizer.workflow import normalize_actions
+from src.action_executor.workflow import execute_actions
+
+actions    = extract_actions(transcript_raw=open("meeting.txt").read())
+normalized = normalize_actions(actions, meeting_date="2026-03-05")
+results    = execute_actions(normalized, dry_run=False)
+```
+
+The executor prints a summary table to stdout on completion:
+
+```
+======================================================================
+  EXECUTION SUMMARY  (9 actions)
+======================================================================
+  [~] ab420bf4      create_notion_doc       notion/notion_create_page
+           params: {"page_title": "The agreed-upon mvp definition for client delta...
+  [~] d8bf7a3a      send_email              gmail/send_email
+           params: {"to": "client-delta@external.com", "subject_hint": "Draft an...
+  [~] 285bc753      set_calendar            calendar/create_event
+           params: {"event_name": "Bug bash session...", "participants": [...], ...
+----------------------------------------------------------------------
+  dry_run: 9
+======================================================================
+```
+
+---
+
 ## Pipelines, node details, and performance
 
 Detailed pipeline diagrams, node-by-node descriptions, and performance notes are in separate docs:
 
 - **[Action Extractor](docs/action_extractor.md)** — pipeline, extractor nodes (Segmenter → Action Finalizer), optimization impact, scaling
 - **[Action Normalizer](docs/action_normalizer.md)** — pipeline, normalizer nodes (Deadline Normalizer → Tool Classifier), performance notes
+- **[Action Executor](docs/action_executor.md)** — pipeline, contact resolver, MCP dispatcher, relation graph schema, extending contacts
 
 ---
 
@@ -439,6 +532,63 @@ An execution log is written to `output/normalizer_log.txt`.
 
 ---
 
+### Executor output
+
+Written to `output/execution_results.json` (or the path you specify). A JSON array of result objects, one per action.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Action ID from the normalizer |
+| `tool_type` | `string` | The tool that was (or would be) called |
+| `server` | `string \| null` | MCP server name from `mcp_config.json` |
+| `mcp_tool` | `string \| null` | Specific tool exposed by that MCP server |
+| `params` | `object` | Final enriched `tool_params` after contact resolution |
+| `status` | `string` | `"success"`, `"dry_run"`, `"skipped"`, or `"error"` |
+| `response` | `any \| null` | Response payload from the MCP server (live mode) or a preview object (dry-run) |
+| `error` | `string \| null` | Error message if `status` is `"error"`, otherwise `null` |
+
+Example (dry-run):
+
+```json
+[
+  {
+    "id": "285bc753",
+    "tool_type": "set_calendar",
+    "server": "calendar",
+    "mcp_tool": "create_event",
+    "params": {
+      "event_name": "Bug bash session before release for march 10th, afternoon around 2 pm.",
+      "date": "2026-03-10",
+      "time": "2:00 PM",
+      "participants": [
+        { "name": "Ash",   "email": "ash.who@gmail.com"  },
+        { "name": "Kajan", "email": "kazz@gmail.com"     },
+        { "name": "John",  "email": "john466@gmail.com"  }
+      ]
+    },
+    "status": "dry_run",
+    "response": { "preview": "Would invoke calendar/create_event" },
+    "error": null
+  },
+  {
+    "id": "122f5ef0",
+    "tool_type": "send_notification",
+    "server": "slack",
+    "mcp_tool": "slack_post_message",
+    "params": {
+      "recipient": "#security",
+      "channel": "slack",
+      "message_hint": "Priya to check with the security team regarding the security review."
+    },
+    "status": "dry_run",
+    "response": { "preview": "Would invoke slack/slack_post_message" },
+    "error": null
+  }
+]
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -446,7 +596,7 @@ agent-ai/
 ├── src/
 │   ├── __init__.py
 │   │
-│   ├── action_extractor/              # ── Extractor ──────────────────────
+│   ├── action_extractor/              # ── Stage 1: Extractor ──────────────
 │   │   ├── __init__.py
 │   │   ├── main.py                    # CLI entry point
 │   │   ├── workflow.py                # Extractor graph + extract_actions()
@@ -455,13 +605,26 @@ agent-ai/
 │   │   ├── models.py                  # Pydantic models: Segment, Action, ActionDetails
 │   │   └── llm_config.py              # Per-node LLM config (loaded from .env + configs/)
 │   │
-│   └── action_normalizer/             # ── Normalizer ──────────────────────
+│   ├── action_normalizer/             # ── Stage 2: Normalizer ─────────────
+│   │   ├── __init__.py
+│   │   ├── workflow.py                # Normalizer graph + normalize_actions()
+│   │   ├── nodes.py                   # All normalizer node implementations
+│   │   ├── state.py                   # Normalizer graph state (TypedDict)
+│   │   ├── models.py                  # Pydantic models: NormalizedAction, ToolType
+│   │   └── data.py                    # Rule-based data: verb dict, tool map, patterns
+│   │
+│   ├── relation_graph/                # ── Contact registry ────────────────
+│   │   ├── __init__.py
+│   │   ├── contacts.json              # People, their channels, and connections
+│   │   ├── models.py                  # Pydantic models: Person, Connection, Member
+│   │   └── resolver.py                # ContactResolver — enriches tool_params
+│   │
+│   └── action_executor/               # ── Stage 3: Executor ───────────────
 │       ├── __init__.py
-│       ├── workflow.py                # Normalizer graph + normalize_actions()
-│       ├── nodes.py                   # All normalizer node implementations
-│       ├── state.py                   # Normalizer graph state (TypedDict)
-│       ├── models.py                  # Pydantic models: NormalizedAction, ToolType
-│       └── data.py                    # Rule-based data: verb dict, tool map, patterns
+│       ├── workflow.py                # Executor graph + execute_actions()
+│       ├── nodes.py                   # contact_resolver_node, mcp_dispatcher_node
+│       ├── state.py                   # Executor graph state (TypedDict)
+│       └── mcp_clients.py             # MCPDispatcher (dry-run + live via langchain-mcp-adapters)
 │
 ├── input/
 │   ├── input.txt                      # Default input transcript
@@ -470,8 +633,9 @@ agent-ai/
 │   ├── input_large.txt                # Large test transcript
 │   └── real_input.txt                 # Real meeting transcript
 ├── output/                            # Generated on run (gitignored)
-│   ├── output.json                    # Extractor output
-│   ├── normalized_output.json         # Normalizer output
+│   ├── output.json                    # Stage 1 output
+│   ├── normalized_output.json         # Stage 2 output
+│   ├── execution_results.json         # Stage 3 output
 │   ├── output_log.txt                 # Extractor execution log
 │   └── normalizer_log.txt             # Normalizer execution log
 ├── configs/
@@ -479,14 +643,16 @@ agent-ai/
 │   ├── claude.env                     # Claude Haiku provider config
 │   └── ollama_glm.env                 # Ollama local provider config
 ├── tests/
-│   ├── test_langchain_to_llm.py
-│   └── test_langchain_to_llm_standalone.py
+│   └── test_langchain_to_llm.py
 ├── docs/
 │   ├── action_extractor.md            # Extractor pipeline, nodes, performance
-│   └── action_normalizer.md           # Normalizer pipeline, nodes, performance
-├── run_extractor.py                   # Extractor runner (wraps src.action_extractor.main)
-├── run_normalizer.py                  # Normalizer runner with summary table
-├── .env                               # API keys and ACTIVE_PROVIDER (gitignored)
+│   ├── action_normalizer.md           # Normalizer pipeline, nodes, performance
+│   └── action_executor.md             # Executor pipeline, relation graph, MCP dispatch
+├── mcp_config.json                    # MCP server definitions (ToolType → server)
+├── run_extractor.py                   # Stage 1 CLI runner
+├── run_normalizer.py                  # Stage 2 CLI runner (with summary table)
+├── run_executor.py                    # Stage 3 CLI runner (dry-run + --live)
+├── .env                               # API keys, ACTIVE_PROVIDER, MCP credentials (gitignored)
 └── requirements.txt
 ```
 
@@ -495,6 +661,8 @@ agent-ai/
 ## Requirements
 
 - Python 3.10+
+- Node.js 18+ (required only in live mode — MCP servers are launched as `npx` processes)
 - **`gemini_mixed` provider:** `GOOGLE_API_KEY` and internet access
 - **`claude` provider:** `ANTHROPIC_API_KEY` and internet access
 - **`ollama` provider:** Ollama running locally with `glm-4.7-flash` pulled (or any OpenAI-compatible model at `http://localhost:11434/v1`)
+- **Executor live mode:** credentials for each MCP service you want to use (see `.env.example` for the full list — `SLACK_BOT_TOKEN`, `NOTION_API_TOKEN`, `JIRA_*`, OAuth paths for Gmail/Calendar)

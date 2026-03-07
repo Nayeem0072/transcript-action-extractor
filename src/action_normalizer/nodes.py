@@ -353,7 +353,7 @@ def _extract_tool_params(action: NormalizedAction) -> dict:
         # "talk to / notify / inform [X]" → extract recipient
         rec_m = re.search(
             r"(?:talk\s+to|notify|inform|tell|reach\s+out\s+to|contact|escalate\s+to)\s+"
-            r"([A-Za-z]+(?:\s+(?:team|department|group))?)",
+            r"(?:the\s+|a\s+|an\s+)?([A-Za-z]+(?:\s+(?:team|department|group))?)",
             desc,
             re.IGNORECASE,
         )

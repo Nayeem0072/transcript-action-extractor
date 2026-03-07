@@ -1,0 +1,181 @@
+[
+  {
+    "id": "ab420bf4",
+    "tool_type": "create_notion_doc",
+    "server": "notion",
+    "mcp_tool": "notion_create_page",
+    "params": {
+      "page_title": "The agreed-upon mvp definition for client delta, which inclu",
+      "content_hint": "Note the agreed-upon MVP definition for Client Delta, which includes authentication, dashboard, basic reports (summary table only), basic roles (admin and user only), and no custom exports.",
+      "template": "meeting-action",
+      "workspace": "company-workspace"
+    },
+    "status": "dry_run",
+    "response": {
+      "preview": "Would invoke notion/notion_create_page"
+    },
+    "error": null
+  },
+  {
+    "id": "d8bf7a3a",
+    "tool_type": "send_email",
+    "server": "gmail",
+    "mcp_tool": "send_email",
+    "params": {
+      "to": "client-delta@external.com",
+      "subject_hint": "Draft an update email to the client to reset expectations, i",
+      "body_hint": "Draft an update email to the client to reset expectations, including the phased delivery plan and mentioning the scope change impact."
+    },
+    "status": "dry_run",
+    "response": {
+      "preview": "Would invoke gmail/send_email"
+    },
+    "error": null
+  },
+  {
+    "id": "285bc753",
+    "tool_type": "set_calendar",
+    "server": "calendar",
+    "mcp_tool": "create_event",
+    "params": {
+      "event_name": "Bug bash session before release for march 10th, afternoon around 2 pm.",
+      "date": "2026-03-10",
+      "time": "2:00 PM",
+      "participants": [
+        {
+          "name": "Ash",
+          "email": "ash.who@gmail.com"
+        },
+        {
+          "name": "Kajan",
+          "email": "kazz@gmail.com"
+        },
+        {
+          "name": "John",
+          "email": "john466@gmail.com"
+        }
+      ]
+    },
+    "status": "dry_run",
+    "response": {
+      "preview": "Would invoke calendar/create_event"
+    },
+    "error": null
+  },
+  {
+    "id": "966e958a",
+    "tool_type": "send_notification",
+    "server": "slack",
+    "mcp_tool": "slack_post_message",
+    "params": {
+      "recipient": "#finance",
+      "channel": "slack",
+      "message_hint": "John will talk to the finance department to inform them about the infrastructure cost spike caused by logs going into debug mode in production."
+    },
+    "status": "dry_run",
+    "response": {
+      "preview": "Would invoke slack/slack_post_message"
+    },
+    "error": null
+  },
+  {
+    "id": "769bf590",
+    "tool_type": "create_jira_task",
+    "server": "jira",
+    "mcp_tool": "jira_create_issue",
+    "params": {
+      "title": "Priya will create a task to fix the monitoring alert rules that failed to fire during the recent log",
+      "assignee": "priya",
+      "priority": "high",
+      "due_date": null,
+      "labels": [
+        "monitoring",
+        "alerts",
+        "rules",
+        "task"
+      ]
+    },
+    "status": "dry_run",
+    "response": {
+      "preview": "Would invoke jira/jira_create_issue"
+    },
+    "error": null
+  },
+  {
+    "id": "16026394",
+    "tool_type": "create_jira_task",
+    "server": "jira",
+    "mcp_tool": "jira_create_issue",
+    "params": {
+      "title": "Mike needs to check the color contrast as part of the accessibility review, which was skipped last s",
+      "assignee": "mike",
+      "priority": "high",
+      "due_date": null,
+      "labels": [
+        "accessibility",
+        "review",
+        "color contrast"
+      ]
+    },
+    "status": "dry_run",
+    "response": {
+      "preview": "Would invoke jira/jira_create_issue"
+    },
+    "error": null
+  },
+  {
+    "id": "72b7a90b",
+    "tool_type": "create_jira_task",
+    "server": "jira",
+    "mcp_tool": "jira_create_issue",
+    "params": {
+      "title": "Add an accessibility review to phase one of the project plan.",
+      "assignee": "john",
+      "priority": "high",
+      "due_date": null,
+      "labels": [
+        "accessibility",
+        "review",
+        "phase one"
+      ]
+    },
+    "status": "dry_run",
+    "response": {
+      "preview": "Would invoke jira/jira_create_issue"
+    },
+    "error": null
+  },
+  {
+    "id": "44efd2c0",
+    "tool_type": "create_notion_doc",
+    "server": "notion",
+    "mcp_tool": "notion_create_page",
+    "params": {
+      "page_title": "Sara to own the user guide draft.",
+      "content_hint": "Sara to own the user guide draft.",
+      "template": "meeting-action",
+      "workspace": "company-workspace"
+    },
+    "status": "dry_run",
+    "response": {
+      "preview": "Would invoke notion/notion_create_page"
+    },
+    "error": null
+  },
+  {
+    "id": "122f5ef0",
+    "tool_type": "send_notification",
+    "server": "slack",
+    "mcp_tool": "slack_post_message",
+    "params": {
+      "recipient": "#security",
+      "channel": "slack",
+      "message_hint": "Priya to check with the security team regarding the security review."
+    },
+    "status": "dry_run",
+    "response": {
+      "preview": "Would invoke slack/slack_post_message"
+    },
+    "error": null
+  }
+]
