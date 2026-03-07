@@ -1,4 +1,4 @@
-# LangGraph Meeting Action Item Extractor + Normalizer + Executor
+# ActionPipe Core (Action Item Extractor + Normalizer + Executor)
 
 Extracts structured action items from raw meeting transcripts using a parallel LangGraph pipeline, normalizes each action into a ready-to-execute tool call, and then executes it via MCP servers — sending emails, creating Jira tickets, scheduling calendar events, posting Slack messages, and creating Notion docs. Supports multiple LLM providers — run fully locally via Ollama, or use Gemini or Claude APIs for higher accuracy.
 
