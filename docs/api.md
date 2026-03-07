@@ -1,6 +1,6 @@
 # API Documentation
 
-REST API for pipeline runs: create a run (upload meeting transcript + metadata), then subscribe to a Server-Sent Events (SSE) stream for real-time progress. Currently only the **extractor** stage runs; normalizer and executor are not yet wired.
+REST API for pipeline runs: create a run (upload meeting transcript + metadata), then subscribe to a Server-Sent Events (SSE) stream for real-time progress. The pipeline runs **extractor** then **normalizer**; executor is not yet wired.
 
 **Base URL (local):** `http://localhost:8000`  
 **Interactive docs:** `http://localhost:8000/docs`
@@ -18,7 +18,7 @@ python run_api.py
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/runs` | Create a new pipeline run. Upload a file (or pass by reference), start processing, get `runId` and `streamUrl`. |
-| `GET`  | `/runs/{runId}/stream` | SSE stream for real-time progress (extractor steps). |
+| `GET`  | `/runs/{runId}/stream` | SSE stream for real-time progress (extractor then normalizer steps). |
 
 ---
 
@@ -30,7 +30,6 @@ Create a pipeline run. Processing starts asynchronously; use the returned `strea
 
 **Content-Type:** either `multipart/form-data` or `application/json` (for upload by reference).
 
-#### Option A: Multipart (file upload)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -47,23 +46,6 @@ curl -X POST http://localhost:8000/runs \
   -F "language=en"
 ```
 
-#### Option B: JSON (upload by reference)
-
-Use when the file is already on the server (e.g. from a previous upload). Send `Content-Type: application/json`.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `fileRef` | string | Yes | Path to the file: absolute path, or filename under the server’s `uploads/` directory. |
-| `meetingDate` | string | No | Date of the meeting, e.g. `YYYY-MM-DD`. |
-| `language` | string | No | Language code, e.g. `en`, `bn`. |
-
-**Example:**
-
-```bash
-curl -X POST http://localhost:8000/runs \
-  -H "Content-Type: application/json" \
-  -d '{"fileRef": "abc123.txt", "meetingDate": "2026-03-07", "language": "en"}'
-```
 
 ### Response
 
@@ -145,14 +127,25 @@ Progress follows the extractor graph nodes so the frontend can show accurate ste
 |------|-------------|
 | `load_transcript` | Load transcript from the uploaded/referenced file. |
 | `segmenter` | Split transcript into chunks (by speaker turns, 20 turns per chunk). |
-| `chunks` | Progress event when segmenter is done (no current/total). |
 | `parallel_extractor` | Extract segments from each chunk (LLM). Progress events with `current`/`total` (e.g. 7/12) as each chunk completes. |
 | `evidence_normalizer` | Clean ASR noise, drop meta-actions, convert segments to actions. |
 | `cross_chunk_resolver` | Merge cross-chunk duplicates, resolve vague references. |
 | `global_deduplicator` | Remove duplicate actions by similarity. |
 | `action_finalizer` | Schema enforcement, sort, drop low-confidence. |
 
-### Example stream (extractor, node-level)
+### Normalizer steps (SSE `step` values)
+
+After the extractor, the **normalizer** runs. Steps follow the normalizer graph nodes:
+
+| Step | Description |
+|------|-------------|
+| `deadline_normalizer` | Convert free-text deadlines to ISO dates; convert extractor actions to NormalizedAction. |
+| `verb_enricher` | Extract/upgrade verbs (rule-based + rare LLM fallback). |
+| `action_splitter` | Detect and split compound actions (LLM for candidates). |
+| `deduplicator` | Remove duplicates by Jaccard similarity (same assignee, verb). |
+| `tool_classifier` | Classify into ToolType + extract tool params (rule-based + rare LLM). |
+
+### Example stream (extractor + normalizer)
 
 ```
 event: progress
@@ -163,9 +156,6 @@ data: {"agent": "extractor", "step": "load_transcript"}
 
 event: step_done
 data: {"agent": "extractor", "step": "segmenter"}
-
-event: progress
-data: {"agent": "extractor", "step": "chunks", "status": "running"}
 
 event: progress
 data: {"agent": "extractor", "step": "parallel_extractor", "status": "running", "current": 1, "total": 12}
@@ -193,8 +183,32 @@ data: {"agent": "extractor", "step": "action_finalizer"}
 event: agent_done
 data: {"agent": "extractor"}
 
+event: progress
+data: {"agent": "normalizer", "step": "deadline_normalizer", "status": "running"}
+
+event: step_done
+data: {"agent": "normalizer", "step": "deadline_normalizer"}
+
+event: progress
+data: {"agent": "normalizer", "step": "verb_enricher", "status": "running"}
+
+event: step_done
+data: {"agent": "normalizer", "step": "verb_enricher"}
+
+event: step_done
+data: {"agent": "normalizer", "step": "action_splitter"}
+
+event: step_done
+data: {"agent": "normalizer", "step": "deduplicator"}
+
+event: step_done
+data: {"agent": "normalizer", "step": "tool_classifier"}
+
+event: agent_done
+data: {"agent": "normalizer"}
+
 event: run_complete
-data: {"summary": {"actions_extracted": 5}}
+data: {"summary": {"actions_extracted": 5, "actions_normalized": 4}}
 ```
 
 ### Errors
@@ -207,4 +221,7 @@ data: {"summary": {"actions_extracted": 5}}
 
 ## Pipeline (current behavior)
 
-Only the **extractor** stage runs. Progress is emitted at **node level** (segmenter, parallel_extractor with chunk progress like 7/12, evidence_normalizer, cross_chunk_resolver, global_deduplicator, action_finalizer). Normalizer and executor are not executed yet.
+The pipeline runs **extractor** then **normalizer**. Progress is emitted at node level for both. **Executor** is not run yet.
+
+- **Extractor:** load_transcript → segmenter → parallel_extractor (with current/total) → evidence_normalizer → cross_chunk_resolver → global_deduplicator → action_finalizer.
+- **Normalizer:** deadline_normalizer → verb_enricher → action_splitter → deduplicator → tool_classifier.

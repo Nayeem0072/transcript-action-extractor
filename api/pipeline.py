@@ -1,5 +1,5 @@
 """
-Pipeline runner for API runs: extractor only (normalizer and executor excluded for now).
+Pipeline runner for API runs: extractor → normalizer (executor excluded for now).
 
 Runs synchronously and calls an emit callback for each SSE event.
 The API runs this in a thread and wires emit to an asyncio.Queue via call_soon_threadsafe.
@@ -32,7 +32,7 @@ def run_pipeline_sync(
     contacts_path: str | None = None,
 ) -> None:
     """
-    Run the extractor pipeline only and emit SSE events.
+    Run the extractor then normalizer pipeline and emit SSE events.
 
     emit_cb(event_type, data) is called from this thread; the API layer must
     use call_soon_threadsafe to put events on an asyncio.Queue.
@@ -46,11 +46,12 @@ def run_pipeline_sync(
 
         from src.action_extractor.main import load_transcript
         from src.action_extractor.workflow import extract_actions_with_progress
+        from src.action_normalizer.workflow import normalize_actions_with_progress
     except Exception as e:
         _emit(emit_cb, "error", {"message": str(e), "code": "import_error"})
         return
 
-    # --- EXTRACTOR (node-level steps: load_transcript, segmenter, chunks, parallel_extractor, evidence_normalizer, cross_chunk_resolver, global_deduplicator, action_finalizer) ---
+    # --- EXTRACTOR ---
     _emit(emit_cb, "progress", {
         "agent": "extractor",
         "step": "load_transcript",
@@ -74,6 +75,25 @@ def run_pipeline_sync(
     logger.info("Extractor done: %d action(s) -> %s", len(actions), json.dumps(actions, default=str, ensure_ascii=False))
 
     _emit(emit_cb, "agent_done", {"agent": "extractor"})
+
+    # --- NORMALIZER ---
+    _emit(emit_cb, "progress", {
+        "agent": "normalizer",
+        "step": "deadline_normalizer",
+        "status": "running",
+    })
+    try:
+        normalized = normalize_actions_with_progress(actions, emit_cb, meeting_date=meeting_date or None)
+    except Exception as e:
+        logger.exception("Normalizer failed")
+        _emit(emit_cb, "error", {"message": str(e), "agent": "normalizer", "step": "normalize"})
+        return
+
+    logger.info("Normalizer done: %d action(s) -> %s", len(normalized), json.dumps(normalized, default=str, ensure_ascii=False))
+    _emit(emit_cb, "agent_done", {"agent": "normalizer"})
     _emit(emit_cb, "run_complete", {
-        "summary": {"actions_extracted": len(actions)},
+        "summary": {
+            "actions_extracted": len(actions),
+            "actions_normalized": len(normalized),
+        },
     })
