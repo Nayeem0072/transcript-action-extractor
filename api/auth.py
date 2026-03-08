@@ -1,11 +1,12 @@
 """Auth0 JWT verification and user get-or-create for FastAPI."""
 import logging
 import os
+from dataclasses import dataclass
 from typing import Annotated
 
 import httpx
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,33 @@ from api.models import Organization, User
 logger = logging.getLogger(__name__)
 
 HTTP_BEARER = HTTPBearer(auto_error=False)
+
+
+@dataclass
+class UserDetails:
+    """JWT claims plus optional DB user for the current request."""
+    claims: dict
+    user: User
+
+
+def get_token(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(HTTP_BEARER)],
+) -> str:
+    """
+    Extract JWT from Authorization: Bearer … or from query param `token` (for SSE).
+    Raises 401 if neither is present.
+    """
+    if credentials and credentials.credentials:
+        return credentials.credentials
+    token = request.query_params.get("token")
+    if token:
+        return token
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Missing or invalid authorization (use Authorization: Bearer <token> or ?token=<token>)",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN", "").rstrip("/").replace("https://", "").replace("http://", "")
 AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE", "")
@@ -186,21 +214,14 @@ async def get_or_create_user(db: AsyncSession, payload: dict) -> User:
     return user
 
 
-async def get_current_user(
+async def get_user_details(
     db: Annotated[AsyncSession, Depends(get_db)],
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(HTTP_BEARER)],
-) -> User:
+    token: Annotated[str, Depends(get_token)],
+) -> UserDetails:
     """
-    FastAPI dependency: require Authorization Bearer token, verify with Auth0, return DB user.
-    Call this on any route that requires login; user is created/updated on first use.
+    FastAPI dependency: validate JWT (from Bearer or query param `token`), return UserDetails (claims + DB user).
+    Use on every protected route; user is created/updated on first use.
     """
-    if not credentials or not credentials.credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    token = credentials.credentials
     payload = verify_auth0_token(token)
     # Access tokens for an API often omit email/name or have placeholder; fetch from Auth0 /userinfo if needed
     email = (payload.get("email") or "").strip()
@@ -210,4 +231,14 @@ async def get_current_user(
         if userinfo:
             payload = {**payload, **userinfo}
     user = await get_or_create_user(db, payload)
-    return user
+    return UserDetails(claims=payload, user=user)
+
+
+async def get_current_user(
+    user_details: Annotated[UserDetails, Depends(get_user_details)],
+) -> User:
+    """
+    FastAPI dependency: require valid JWT (Bearer or ?token=), verify with Auth0, return DB user.
+    Use on routes that only need the User model; for claims + user use get_user_details.
+    """
+    return user_details.user

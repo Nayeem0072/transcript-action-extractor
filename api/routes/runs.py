@@ -7,12 +7,13 @@ Runs API: create pipeline runs (upload + details) and stream progress via SSE.
 import asyncio
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.requests import Request
 from fastapi.responses import StreamingResponse
 
+from api.auth import UserDetails, get_user_details
 from api.pipeline import run_pipeline_sync
 
 MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024  # 15 MB
@@ -74,6 +75,7 @@ async def _run_pipeline_task(run_id: str, transcript_path: str, meeting_date: st
 @router.post("", status_code=201)
 async def create_run(
     request: Request,
+    user_details: Annotated[UserDetails, Depends(get_user_details)],
     file: UploadFile | None = File(None),
     meetingDate: str | None = Form(None),
     language: str | None = Form(None),
@@ -142,7 +144,10 @@ async def create_run(
 # --- GET /runs/:runId/stream (SSE) ---
 
 @router.get("/{run_id}/stream")
-async def stream_run(run_id: str) -> StreamingResponse:
+async def stream_run(
+    run_id: str,
+    user_details: Annotated[UserDetails, Depends(get_user_details)],
+) -> StreamingResponse:
     """
     Real-time progress for the pipeline (extractor → normalizer → executor).
     Connect with Accept: text/event-stream.
