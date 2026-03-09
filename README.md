@@ -107,7 +107,7 @@ python run_api.py
 
 **Endpoints**
 
-Full API reference: [docs/api.md](docs/api.md).
+Full API reference: [api/docs/api.md](api/docs/api.md).
 
 ---
 
