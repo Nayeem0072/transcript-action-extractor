@@ -56,9 +56,8 @@ async def db_lifespan():
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS auth0_id VARCHAR(255)"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS picture VARCHAR(512)"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()"))
-        # Add columns to organizations (Actionpipe sync)
-        await conn.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS actionpipe_org_name VARCHAR(255)"))
-        await conn.execute(text("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS actionpipe_org_id UUID NOT NULL DEFAULT gen_random_uuid()"))
+        # Link org_people to users (when a contact has a login account)
+        await conn.execute(text("ALTER TABLE org_people ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE SET NULL"))
     async with async_session_factory() as session:
         await session.execute(text("SELECT 1"))
     yield

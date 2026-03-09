@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -21,11 +21,10 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
-    actionpipe_org_name: Mapped[str | None] = mapped_column(String(255), nullable=True, default="test org")
-    actionpipe_org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), default=uuid.UUID("8675108e-fc97-47ea-9838-a1a3f3fad3f4"), nullable=False)
-
     users: Mapped[list["User"]] = relationship("User", back_populates="organization")
     org_contact: Mapped["OrgContact | None"] = relationship("OrgContact", back_populates="organization", uselist=False)
+    org_people: Mapped[list["OrgPerson"]] = relationship("OrgPerson", back_populates="organization", cascade="all, delete-orphan")
+    org_teams: Mapped[list["OrgTeam"]] = relationship("OrgTeam", back_populates="organization", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -44,6 +43,11 @@ class User(Base):
 
     organization: Mapped["Organization"] = relationship("Organization", back_populates="users")
     tokens: Mapped[list["UserToken"]] = relationship("UserToken", back_populates="user", cascade="all, delete-orphan")
+
+    # Optional link to org_people when this user is the same as a contact in the network
+    org_person: Mapped["OrgPerson | None"] = relationship(
+        "OrgPerson", back_populates="user", uselist=False
+    )
 
     __table_args__ = (UniqueConstraint("org_id", "email", name="uq_user_org_email"),)
 
@@ -80,3 +84,86 @@ class OrgContact(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     organization: Mapped["Organization"] = relationship("Organization", back_populates="org_contact")
+
+
+class OrgPerson(Base):
+    """A person in an org's network (internal or client). Can belong to multiple teams."""
+    __tablename__ = "org_people"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    slack_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    notion_workspace: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    jira_user: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    jira_projects: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)  # list of project keys
+    is_client: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    # When set, this contact has a login account (User); must be same org
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        unique=True,
+    )
+
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="org_people")
+    user: Mapped["User | None"] = relationship("User", back_populates="org_person")
+    team_memberships: Mapped[list["OrgTeamMember"]] = relationship(
+        "OrgTeamMember", back_populates="person", cascade="all, delete-orphan"
+    )
+
+
+class OrgTeam(Base):
+    """A team in an org's network (internal or client). Can have email, slack, etc."""
+    __tablename__ = "org_teams"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    slack_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    slack_channel: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    notion_workspace: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_client: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    organization: Mapped["Organization"] = relationship("Organization", back_populates="org_teams")
+    members: Mapped[list["OrgTeamMember"]] = relationship(
+        "OrgTeamMember", back_populates="team", cascade="all, delete-orphan"
+    )
+
+
+class OrgTeamMember(Base):
+    """Association: a person belongs to a team. One person can be in many teams."""
+    __tablename__ = "org_team_members"
+
+    team_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("org_teams.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("org_people.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    team: Mapped["OrgTeam"] = relationship("OrgTeam", back_populates="members")
+    person: Mapped["OrgPerson"] = relationship("OrgPerson", back_populates="team_memberships")
+
+    __table_args__ = (UniqueConstraint("team_id", "person_id", name="uq_org_team_member"),)

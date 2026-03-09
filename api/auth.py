@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db import get_db
-from api.models import Organization, User
+from api.models import Organization, User, OrgPerson
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +49,20 @@ AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN", "").rstrip("/").replace("https://", "")
 AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE", "")
 AUTH0_ISSUER = f"https://{AUTH0_DOMAIN}/" if AUTH0_DOMAIN else ""
 
+# Development: put all new users in one shared org so they share contacts (people/teams).
+USE_SHARED_ORG = os.getenv("USE_SHARED_ORG", "1").lower() in ("1", "true", "yes")
+SHARED_ORG_NAME = os.getenv("SHARED_ORG_NAME", "Development")
+
+# Development: avoid calling Auth0 /userinfo on every request.
+# When True, we never call /userinfo; we just trust whatever is in the JWT.
+DISABLE_AUTH0_USERINFO = os.getenv("DISABLE_AUTH0_USERINFO", "1").lower() in ("1", "true", "yes")
+
 # In-memory cache of JWKS (key by kid)
 _jwks_cache: dict[str, dict] = {}
 _jwks_cache_issuer: str | None = None
+
+# In-memory cache of userinfo responses: sub -> payload dict
+_userinfo_cache: dict[str, dict] = {}
 
 
 def _get_jwks() -> dict:
@@ -132,10 +143,15 @@ def _is_placeholder_email(email: str | None) -> bool:
     return email.strip().endswith("@auth0.user")
 
 
-async def _fetch_auth0_userinfo(access_token: str) -> dict | None:
-    """Fetch user profile from Auth0 /userinfo (email, name, picture). Returns None on failure."""
-    if not AUTH0_DOMAIN:
+async def _fetch_auth0_userinfo(access_token: str, sub: str | None) -> dict | None:
+    """
+    Fetch user profile from Auth0 /userinfo (email, name, picture). Returns None on failure.
+    Cached in-memory by sub so we only hit Auth0 once per user per process.
+    """
+    if not AUTH0_DOMAIN or DISABLE_AUTH0_USERINFO:
         return None
+    if sub and sub in _userinfo_cache:
+        return _userinfo_cache[sub]
     url = f"https://{AUTH0_DOMAIN}/userinfo"
     try:
         resp = httpx.get(
@@ -144,7 +160,10 @@ async def _fetch_auth0_userinfo(access_token: str) -> dict | None:
             timeout=10.0,
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if sub:
+            _userinfo_cache[sub] = data
+        return data
     except Exception as e:
         logger.warning("Auth0 userinfo fetch failed: %s", e)
         return None
@@ -168,6 +187,18 @@ async def get_or_create_user(db: AsyncSession, payload: dict) -> User:
         family = (payload.get("family_name") or "").strip()
         if given or family:
             name = f"{given} {family}".strip() or None
+    # Dev/production-safe fallback: if we still don't have a usable name but do have a real email,
+    # derive a human-readable name from the email local-part (e.g. "john.doe" -> "John Doe").
+    if not name and email and not _is_placeholder_email(email):
+        local = email.split("@")[0]
+        parts = (
+            local.replace(".", " ")
+            .replace("_", " ")
+            .replace("-", " ")
+            .split()
+        )
+        if parts:
+            name = " ".join(p.capitalize() for p in parts)
     picture = (payload.get("picture") or "").strip() or None
     if _is_placeholder_email(email):
         email = f"{sub}@auth0.user"  # fallback only if still missing or placeholder
@@ -187,19 +218,29 @@ async def get_or_create_user(db: AsyncSession, payload: dict) -> User:
             changed = True
         if changed:
             await db.flush()
+        await _link_user_to_org_person(db, user, email)
         return user
 
-    # Create org and user — use a human-readable org name when possible
-    if name:
-        org_name = name
-    elif email and not _is_placeholder_email(email):
-        local = email.split("@")[0]
-        org_name = local if "|" not in local else "Personal"
+    # Create user — either in shared org (dev) or in a new org per user
+    if USE_SHARED_ORG:
+        result = await db.execute(select(Organization).where(Organization.name == SHARED_ORG_NAME))
+        org = result.scalars().first()
+        if not org:
+            org = Organization(name=SHARED_ORG_NAME)
+            db.add(org)
+            await db.flush()
+            logger.info("Created shared org: %s", SHARED_ORG_NAME)
     else:
-        org_name = "Personal"
-    org = Organization(name=org_name)
-    db.add(org)
-    await db.flush()
+        if name:
+            org_name = name
+        elif email and not _is_placeholder_email(email):
+            local = email.split("@")[0]
+            org_name = local if "|" not in local else "Personal"
+        else:
+            org_name = "Personal"
+        org = Organization(name=org_name)
+        db.add(org)
+        await db.flush()
     user = User(
         org_id=org.id,
         auth0_id=sub,
@@ -210,8 +251,51 @@ async def get_or_create_user(db: AsyncSession, payload: dict) -> User:
     db.add(user)
     await db.flush()
     await db.refresh(user)
-    logger.info("Created user from Auth0: auth0_id=%s email=%s", sub, email)
+    logger.info("Created user from Auth0: auth0_id=%s email=%s org_id=%s", sub, email, org.id)
+    await _link_user_to_org_person(db, user, email)
     return user
+
+
+def _normalize_email_for_match(email: str | None) -> str | None:
+    """Return lowercased trimmed email for matching, or None if placeholder/missing."""
+    if not email or not (e := email.strip()):
+        return None
+    if e.endswith("@auth0.user"):
+        return None
+    return e.lower()
+
+
+async def _link_user_to_org_person(db: AsyncSession, user: User, login_email: str) -> None:
+    """
+    If this user is not yet linked to an OrgPerson, try to find one in the same org
+    with matching email and link them. Skips if login_email is placeholder.
+    """
+    if _is_placeholder_email(login_email):
+        return
+    norm = _normalize_email_for_match(login_email)
+    if not norm:
+        return
+    # Already linked?
+    result = await db.execute(select(OrgPerson).where(OrgPerson.user_id == user.id))
+    if result.scalars().first():
+        return
+    # Find an unlinked OrgPerson in same org with same email (case-insensitive)
+    result = await db.execute(
+        select(OrgPerson).where(
+            OrgPerson.org_id == user.org_id,
+            OrgPerson.user_id.is_(None),
+        )
+    )
+    candidates = result.scalars().all()
+    match = None
+    for p in candidates:
+        if p.email and _normalize_email_for_match(p.email) == norm:
+            match = p
+            break
+    if match:
+        match.user_id = user.id
+        await db.flush()
+        logger.info("Linked user %s to org_person %s (email match)", user.id, match.id)
 
 
 async def get_user_details(
@@ -223,11 +307,12 @@ async def get_user_details(
     Use on every protected route; user is created/updated on first use.
     """
     payload = verify_auth0_token(token)
-    # Access tokens for an API often omit email/name or have placeholder; fetch from Auth0 /userinfo if needed
+    # Access tokens for an API often omit email/name or have placeholder; fetch from Auth0 /userinfo if needed.
+    # For performance, this is cached by sub and can be fully disabled in dev via DISABLE_AUTH0_USERINFO.
     email = (payload.get("email") or "").strip()
     name = (payload.get("name") or payload.get("nickname") or "").strip() or None
-    if _is_placeholder_email(email) or _is_placeholder_name(name):
-        userinfo = await _fetch_auth0_userinfo(token)
+    if not DISABLE_AUTH0_USERINFO and (_is_placeholder_email(email) or _is_placeholder_name(name)):
+        userinfo = await _fetch_auth0_userinfo(token, payload.get("sub"))
         if userinfo:
             payload = {**payload, **userinfo}
     user = await get_or_create_user(db, payload)
