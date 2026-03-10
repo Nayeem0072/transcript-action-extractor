@@ -70,6 +70,8 @@ async def db_lifespan():
         await conn.execute(text("ALTER TABLE run_response_logs ADD COLUMN IF NOT EXISTS actions_normalized INTEGER"))
         await conn.execute(text("ALTER TABLE run_response_logs ADD COLUMN IF NOT EXISTS actions_executed INTEGER"))
         await conn.execute(text("ALTER TABLE run_response_logs ADD COLUMN IF NOT EXISTS response_data JSONB"))
+        # user_tokens: extra metadata per service (e.g. Slack workspace name, user id)
+        await conn.execute(text("ALTER TABLE user_tokens ADD COLUMN IF NOT EXISTS meta JSONB"))
     async with async_session_factory() as session:
         await session.execute(text("SELECT 1"))
     yield
