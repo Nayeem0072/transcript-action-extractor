@@ -323,7 +323,7 @@ def segmenter_node(state: GraphState) -> GraphState:
     for i in range(0, len(turns), chunk_size):
         chunk = "\n\n".join(turns[i:i + chunk_size])
         logger.info("Segmenter: Chunk index: %d, length: %d", i, len(chunk))
-        logger.info("Segmenter: Chunk text: %s", chunk)
+        # logger.info("Segmenter: Chunk text: %s", chunk)
         chunks.append(chunk)
 
     logger.info("Segmenter: Created %d chunks", len(chunks))
