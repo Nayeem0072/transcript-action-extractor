@@ -407,6 +407,12 @@ class ContactResolver:
                 params["recipient_display_name"] = assignee or r
             else:
                 params["recipient_display_name"] = assignee or r
+        # Ensure frontend always has a display name (e.g. when recipient couldn't be resolved)
+        if "recipient_display_name" not in params:
+            hint = (params.get("message_hint") or "")[:50].strip()
+            params["recipient_display_name"] = (
+                assignee or params.get("recipient") or hint or "Unknown"
+            )
         return params
 
     def _enrich_jira(self, params: dict, assignee: Optional[str]) -> dict:
