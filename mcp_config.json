@@ -58,5 +58,12 @@
     "create_notion_doc": "notion",
     "create_jira_task":  "jira",
     "general_task":      null
+  },
+  "allowedTools": {
+    "slack": ["slack_post_message"],
+    "gmail": ["send_email"],
+    "calendar": ["create_event"],
+    "jira": ["jira_create_issue"],
+    "notion": ["notion_create_page"]
   }
 }

@@ -9,18 +9,32 @@ Live mode (dry_run=False):
 Dry-run mode (dry_run=True, default):
   Skips all process spawning; returns a structured preview of what *would*
   be called so the rest of the pipeline can be tested without credentials.
+
+Sandbox: only tools listed in allowedTools (mcp_config.json) are invoked.
+Parameter validation and mapping (e.g. Slack message_hint -> text) reduce
+prompt injection and ensure required MCP params are present.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
 _MCP_CONFIG_PATH = Path(__file__).parent.parent.parent / "mcp_config.json"
+
+# Max length for Slack message text (prompt-injection / spam mitigation)
+_SLACK_TEXT_MAX_LEN = 4000
+
+# Heuristic: reject leading phrases that look like instruction override
+_PROMPT_INJECTION_PATTERN = re.compile(
+    r"^\s*(ignore\s+previous\s+instructions|follow\s+these\s+instructions|you\s+are\s+now)",
+    re.IGNORECASE,
+)
 
 
 def _load_mcp_config(config_path: Optional[Path] = None) -> dict:
@@ -40,6 +54,37 @@ def _resolve_env_vars(env_dict: dict[str, str]) -> dict[str, str]:
     return resolved
 
 
+def _validate_and_map_slack_params(params: dict[str, Any]) -> tuple[dict[str, Any], Optional[str]]:
+    """
+    Map our executor params to Slack MCP slack_post_message schema and validate.
+
+    MCP expects: channel_id (str), text (str).
+    We have: recipient, channel, message_hint, recipient_display_name, etc.
+
+    Returns (mapped_params, error_message). If error_message is set, mapped_params
+    is still the best-effort dict for logging.
+    """
+    channel_id = (
+        (params.get("recipient") or params.get("channel") or "")
+        if isinstance(params.get("recipient"), str)
+        else str(params.get("recipient") or params.get("channel") or "")
+    )
+    text_raw = params.get("message_hint") or params.get("text") or ""
+    if not isinstance(text_raw, str):
+        text_raw = str(text_raw)
+    text = text_raw[: _SLACK_TEXT_MAX_LEN].strip()
+    if _PROMPT_INJECTION_PATTERN.match(text):
+        return (
+            {"channel_id": channel_id, "text": text},
+            "Message content rejected by sandbox (instruction override pattern)",
+        )
+    if not channel_id or not channel_id.strip():
+        return ({"channel_id": channel_id, "text": text}, "Slack channel_id is required")
+    if not text:
+        return ({"channel_id": channel_id, "text": text}, "Slack text (message) is required")
+    return ({"channel_id": channel_id, "text": text}, None)
+
+
 class MCPDispatcher:
     """
     Routes each enriched action to the correct MCP server tool.
@@ -50,12 +95,16 @@ class MCPDispatcher:
         When True (default), simulate tool calls without launching MCP processes.
     config_path:
         Path to mcp_config.json. Defaults to the project-root file.
+    server_env_overrides:
+        Optional dict mapping server name -> env dict to merge over base config
+        (e.g. {"slack": {"SLACK_BOT_TOKEN": "xoxb-user-token"}} for per-request token).
     """
 
     def __init__(
         self,
         dry_run: bool = True,
         config_path: Optional[Path] = None,
+        server_env_overrides: Optional[dict[str, dict[str, str]]] = None,
     ) -> None:
         self.dry_run = dry_run
         self._config = _load_mcp_config(config_path)
@@ -63,10 +112,54 @@ class MCPDispatcher:
             "toolTypeToServer", {}
         )
         self._servers: dict[str, dict] = self._config.get("mcpServers", {})
+        self._allowed_tools: dict[str, list[str]] = self._config.get(
+            "allowedTools", {}
+        )
+        self._server_env_overrides = server_env_overrides or {}
+
+    def _check_allowlist(self, server_name: str, mcp_tool_name: str) -> Optional[str]:
+        """Return None if allowed, else an error message."""
+        allowed = self._allowed_tools.get(server_name)
+        if allowed is None:
+            return "Tool not allowed by sandbox (server not in allowlist)"
+        if mcp_tool_name not in allowed:
+            return f"Tool '{mcp_tool_name}' not allowed by sandbox. Allowed for {server_name}: {allowed}"
+        return None
+
+    def _resolve_server_env(self, server_name: str) -> dict[str, str]:
+        """Base env from config, merged with server_env_overrides for this server."""
+        base = _resolve_env_vars(
+            self._servers.get(server_name, {}).get("env", {})
+        )
+        overrides = self._server_env_overrides.get(server_name)
+        if overrides:
+            base = {**base, **overrides}
+        return base
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
+
+    def _sandbox_params(
+        self,
+        server_name: str,
+        mcp_tool_name: str,
+        params: dict[str, Any],
+    ) -> tuple[dict[str, Any], Optional[str]]:
+        """
+        Apply allowlist and server-specific param validation/mapping.
+        Returns (params_to_use, error_message). If error is set, params_to_use
+        may still be the mapped params for logging.
+        """
+        allow_err = self._check_allowlist(server_name, mcp_tool_name)
+        if allow_err:
+            return (params, allow_err)
+        if server_name == "slack" and mcp_tool_name == "slack_post_message":
+            mapped, val_err = _validate_and_map_slack_params(params)
+            if val_err:
+                return (mapped, val_err)
+            return (mapped, None)
+        return (params, None)
 
     async def dispatch(
         self, action: dict[str, Any]
@@ -79,7 +172,7 @@ class MCPDispatcher:
         """
         action_id: str = action.get("id", "unknown")
         tool_type: str = action.get("tool_type", "general_task")
-        params: dict = action.get("tool_params", {})
+        params: dict = action.get("tool_params", action.get("params", {}))
 
         server_name = self._tool_type_map.get(tool_type)
         if not server_name:
@@ -93,20 +186,29 @@ class MCPDispatcher:
         server_cfg = self._servers.get(server_name, {})
         mcp_tool_name: str = server_cfg.get("_mcpTool", tool_type)
 
+        params_to_use, sandbox_err = self._sandbox_params(
+            server_name, mcp_tool_name, params
+        )
+        if sandbox_err:
+            return self._result(
+                action_id, tool_type, server_name, mcp_tool_name, params_to_use,
+                status="error", response=None, error=sandbox_err,
+            )
+
         if self.dry_run:
             return self._dry_run_result(
-                action_id, tool_type, server_name, mcp_tool_name, params
+                action_id, tool_type, server_name, mcp_tool_name, params_to_use
             )
 
         return await self._live_dispatch(
-            action_id, tool_type, server_name, server_cfg, mcp_tool_name, params
+            action_id, tool_type, server_name, server_cfg, mcp_tool_name, params_to_use
         )
 
     def _dispatch_one_dry(self, action: dict[str, Any]) -> dict[str, Any]:
         """Synchronous single-action dry-run (no process spawn, no asyncio)."""
         action_id: str = action.get("id", "unknown")
         tool_type: str = action.get("tool_type", "general_task")
-        params: dict = action.get("tool_params", {})
+        params: dict = action.get("tool_params", action.get("params", {}))
 
         server_name = self._tool_type_map.get(tool_type)
         if not server_name:
@@ -119,8 +221,18 @@ class MCPDispatcher:
 
         server_cfg = self._servers.get(server_name, {})
         mcp_tool_name: str = server_cfg.get("_mcpTool", tool_type)
+
+        params_to_use, sandbox_err = self._sandbox_params(
+            server_name, mcp_tool_name, params
+        )
+        if sandbox_err:
+            return self._result(
+                action_id, tool_type, server_name, mcp_tool_name, params_to_use,
+                status="error", response=None, error=sandbox_err,
+            )
+
         return self._dry_run_result(
-            action_id, tool_type, server_name, mcp_tool_name, params
+            action_id, tool_type, server_name, mcp_tool_name, params_to_use
         )
 
     def dispatch_all_sync(self, actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -164,7 +276,7 @@ class MCPDispatcher:
             server_spec[name] = {
                 "command": cfg.get("command", "npx"),
                 "args": cfg.get("args", []),
-                "env": _resolve_env_vars(cfg.get("env", {})),
+                "env": self._resolve_server_env(name),
                 "transport": "stdio",
             }
 
@@ -177,7 +289,7 @@ class MCPDispatcher:
                 for action in actions:
                     action_id = action.get("id", "unknown")
                     tool_type = action.get("tool_type", "general_task")
-                    params = action.get("tool_params", {})
+                    params = action.get("tool_params", action.get("params", {}))
                     server_name = self._tool_type_map.get(tool_type)
                     if not server_name:
                         results.append(self._result(
@@ -189,26 +301,37 @@ class MCPDispatcher:
 
                     server_cfg = self._servers.get(server_name, {})
                     mcp_tool_name = server_cfg.get("_mcpTool", tool_type)
+
+                    params_to_use, sandbox_err = self._sandbox_params(
+                        server_name, mcp_tool_name, params
+                    )
+                    if sandbox_err:
+                        results.append(self._result(
+                            action_id, tool_type, server_name, mcp_tool_name, params_to_use,
+                            status="error", response=None, error=sandbox_err,
+                        ))
+                        continue
+
                     tool = tools_by_name.get(mcp_tool_name)
                     if tool is None:
                         available = list(tools_by_name.keys())
                         results.append(self._result(
-                            action_id, tool_type, server_name, mcp_tool_name, params,
+                            action_id, tool_type, server_name, mcp_tool_name, params_to_use,
                             status="error", response=None,
                             error=f"Tool '{mcp_tool_name}' not found. Available: {available}",
                         ))
                         continue
 
                     try:
-                        response = await tool.ainvoke(params)
+                        response = await tool.ainvoke(params_to_use)
                         results.append(self._result(
-                            action_id, tool_type, server_name, mcp_tool_name, params,
+                            action_id, tool_type, server_name, mcp_tool_name, params_to_use,
                             status="success", response=response, error=None,
                         ))
                     except Exception as exc:  # noqa: BLE001
                         logger.exception("MCP dispatch failed for action %s", action_id)
                         results.append(self._result(
-                            action_id, tool_type, server_name, mcp_tool_name, params,
+                            action_id, tool_type, server_name, mcp_tool_name, params_to_use,
                             status="error", response=None, error=str(exc),
                         ))
 
@@ -280,7 +403,7 @@ class MCPDispatcher:
             server_name: {
                 "command": server_cfg.get("command", "npx"),
                 "args": server_cfg.get("args", []),
-                "env": _resolve_env_vars(server_cfg.get("env", {})),
+                "env": self._resolve_server_env(server_name),
                 "transport": "stdio",
             }
         }
