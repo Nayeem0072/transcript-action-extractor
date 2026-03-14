@@ -27,16 +27,20 @@ def contact_resolver_node(state: ExecutorState) -> dict[str, Any]:
     Enrich every normalized action's tool_params with real contact details
     pulled from the relation graph (contacts.json).
 
-    Input  state keys: normalized_actions, contacts_path (optional)
+    Input  state keys: normalized_actions, contacts_path (optional), contacts_graph (optional)
     Output state keys: enriched_actions
     """
     start = time.perf_counter()
     from src.relation_graph.resolver import ContactResolver
 
+    contacts_graph = state.get("contacts_graph")
     contacts_path = state.get("contacts_path")
-    resolver = ContactResolver(
-        contacts_path=Path(contacts_path) if contacts_path else None
-    )
+    if contacts_graph is not None:
+        resolver = ContactResolver(contacts_graph=contacts_graph)
+    else:
+        resolver = ContactResolver(
+            contacts_path=Path(contacts_path) if contacts_path else None
+        )
 
     normalized = state.get("normalized_actions", [])
     enriched: list[dict[str, Any]] = []

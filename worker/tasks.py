@@ -493,6 +493,17 @@ def run_executor_task(
     except RateLimitExceeded as exc:
         logger.warning("Rate limit hit for run=%s: %s", run_id, exc)
 
+    contacts_graph = None
+    if user_id:
+        with get_sync_db() as db:
+            from sqlalchemy import select
+            from api.models import User, OrgContact
+            user_row = db.execute(select(User).where(User.id == uuid.UUID(user_id))).scalars().first()
+            if user_row and user_row.org_id:
+                oc = db.execute(select(OrgContact).where(OrgContact.org_id == user_row.org_id)).scalars().first()
+                if oc and oc.contacts:
+                    contacts_graph = oc.contacts
+
     try:
         from src.action_executor.workflow import execute_actions_with_progress_checkpointed
 
@@ -507,6 +518,7 @@ def run_executor_task(
                 emit,
                 dry_run=dry_run,
                 contacts_path=None,
+                contacts_graph=contacts_graph,
                 checkpointer=checkpointer,
                 thread_id=thread_id,
                 callbacks=[callback],
