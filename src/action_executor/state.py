@@ -22,3 +22,6 @@ class ExecutorState(TypedDict, total=False):
 
     contacts_path: Optional[str]
     """Optional override path to contacts.json (used in tests)."""
+
+    contacts_graph: Optional[dict]
+    """Optional in-memory contacts graph (same shape as contacts.json). When set, used instead of contacts_path or default file."""

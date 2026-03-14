@@ -121,11 +121,15 @@ class ContactResolver:
     def __init__(
         self,
         contacts_path: Optional[Path] = None,
+        contacts_graph: Optional[dict] = None,
         llm=None,
     ) -> None:
-        path = contacts_path or _DEFAULT_CONTACTS_PATH
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        self._graph = RelationGraph.model_validate(raw)
+        if contacts_graph is not None:
+            self._graph = RelationGraph.model_validate(contacts_graph)
+        else:
+            path = contacts_path or _DEFAULT_CONTACTS_PATH
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            self._graph = RelationGraph.model_validate(raw)
         self._llm = llm  # injected in tests; lazy-loaded on first use otherwise
         self._structured_llm = None
 
@@ -224,7 +228,7 @@ class ContactResolver:
         }
 
         if tool_type == "send_email":
-            params = self._enrich_email(params, assignee, connection)
+            params = self._enrich_email(params, assignee, connection, resolution.connection_key)
 
         elif tool_type == "set_calendar":
             params = self._enrich_calendar(params, assignee, connection)
@@ -317,13 +321,21 @@ class ContactResolver:
         params: dict,
         assignee: Optional[str],
         connection: Optional[Connection],
+        connection_key: Optional[str] = None,
     ) -> dict:
         if connection and connection.email:
             params["to"] = connection.email
+            params["to_display_name"] = connection_key or assignee or connection.email
         elif params.get("to") in (None, "", assignee):
             email = self.resolve_email(assignee)
             if email:
                 params["to"] = email
+                params["to_display_name"] = assignee or email
+        # Fallback: recipient set but no display name (e.g. from normalizer)
+        if params.get("to") and "to_display_name" not in params:
+            params["to_display_name"] = (
+                assignee or connection_key or params["to"].split("@")[0]
+            )
         return params
 
     def _enrich_calendar(
@@ -369,19 +381,41 @@ class ContactResolver:
             if connection.slack_channel:
                 params["recipient"] = connection.slack_channel
                 params["channel"] = "slack"
+                # Display name for channels: strip leading # for frontend
+                params["recipient_display_name"] = connection.slack_channel.lstrip("#")
             elif connection.email:
                 params["recipient"] = connection.email
                 params["channel"] = "email"
+                params["recipient_display_name"] = assignee or connection.email
         elif not recipient_is_valid:
             slack = self.resolve_slack(assignee)
             if slack:
                 params["recipient"] = slack
+                # When recipient is a Slack user ID (e.g. U0AKYDAC3U4), use assignee name for display
+                if slack.startswith("U") and len(slack) >= 9 and assignee:
+                    params["recipient_display_name"] = assignee
+                elif slack.startswith("#"):
+                    params["recipient_display_name"] = slack.lstrip("#")
+                else:
+                    params["recipient_display_name"] = assignee or slack
+        # Fallback: if recipient is set but no display name yet (e.g. valid channel from extractor), add one
+        if params.get("recipient") and "recipient_display_name" not in params:
+            r = params["recipient"]
+            if r.startswith("#"):
+                params["recipient_display_name"] = r.lstrip("#")
+            elif r.startswith("U") and len(r) >= 9:
+                params["recipient_display_name"] = assignee or r
+            else:
+                params["recipient_display_name"] = assignee or r
         return params
 
     def _enrich_jira(self, params: dict, assignee: Optional[str]) -> dict:
         jira_user = self.resolve_jira_user(assignee)
         if jira_user:
             params["assignee"] = jira_user
+            # Keep a display name for the frontend when assignee is an ID (e.g. Jira account id)
+            if assignee:
+                params["assignee_display_name"] = assignee
         return params
 
     def _enrich_notion(self, params: dict, assignee: Optional[str]) -> dict:

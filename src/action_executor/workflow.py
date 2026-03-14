@@ -46,6 +46,7 @@ def execute_actions(
     *,
     dry_run: bool = True,
     contacts_path: str | None = None,
+    contacts_graph: dict | None = None,
 ) -> list[dict[str, Any]]:
     """
     Run the full executor pipeline on a list of NormalizedAction dicts.
@@ -58,6 +59,8 @@ def execute_actions(
         When True (default), simulate MCP calls without launching real processes.
     contacts_path:
         Optional path to an alternative contacts.json (useful for testing).
+    contacts_graph:
+        Optional in-memory contacts graph (same shape as contacts.json). When set, used instead of contacts_path or default file.
 
     Returns
     -------
@@ -69,7 +72,9 @@ def execute_actions(
         "normalized_actions": normalized_actions,
         "dry_run": dry_run,
     }
-    if contacts_path:
+    if contacts_graph is not None:
+        initial_state["contacts_graph"] = contacts_graph
+    elif contacts_path:
         initial_state["contacts_path"] = contacts_path
 
     final_state = graph.invoke(initial_state)
@@ -83,6 +88,7 @@ def execute_actions_with_progress(
     *,
     dry_run: bool = True,
     contacts_path: str | None = None,
+    contacts_graph: dict | None = None,
 ) -> list[dict[str, Any]]:
     """
     Run the executor pipeline and emit progress events for the Run/SSE API.
@@ -102,7 +108,9 @@ def execute_actions_with_progress(
         "normalized_actions": normalized_actions,
         "dry_run": dry_run,
     }
-    if contacts_path:
+    if contacts_graph is not None:
+        initial_state["contacts_graph"] = contacts_graph
+    elif contacts_path:
         initial_state["contacts_path"] = contacts_path
 
     stream_mode = "values"
@@ -144,6 +152,7 @@ def execute_actions_with_progress_checkpointed(
     *,
     dry_run: bool = True,
     contacts_path: str | None = None,
+    contacts_graph: dict | None = None,
     checkpointer: Optional[Any] = None,
     thread_id: Optional[str] = None,
     callbacks: Optional[list] = None,
@@ -163,6 +172,8 @@ def execute_actions_with_progress_checkpointed(
         When True (default), simulate MCP calls.
     contacts_path:
         Optional path to an alternative contacts.json.
+    contacts_graph:
+        Optional in-memory contacts graph (e.g. from org_contacts). When set, used instead of contacts_path or default file.
     checkpointer:
         Optional LangGraph checkpointer.
     thread_id:
@@ -178,7 +189,9 @@ def execute_actions_with_progress_checkpointed(
         "normalized_actions": normalized_actions,
         "dry_run": dry_run,
     }
-    if contacts_path:
+    if contacts_graph is not None:
+        initial_state["contacts_graph"] = contacts_graph
+    elif contacts_path:
         initial_state["contacts_path"] = contacts_path
 
     run_config: dict[str, Any] = {}
